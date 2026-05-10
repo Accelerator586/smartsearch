@@ -46,7 +46,7 @@ jobs:
             tag="latest"
             node npm/scripts/set-package-version.js "$version"
           else
-            version="${base_version}-dev.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+            version="${base_version}-dev.${GITHUB_RUN_NUMBER}"
             tag="next"
             node npm/scripts/set-package-version.js "$version"
           fi

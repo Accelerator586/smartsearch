@@ -344,7 +344,7 @@ npm publish --access public
 
 发布工作流会先检查 npm 上是否已经存在同版本。如果这个版本已经手动发布过，Actions 会跑完测试后跳过 `npm publish`，避免重复版本导致失败。
 
-每次提交到 `main` 也会自动发布一个 `next` 预发布版，版本格式类似 `0.1.0-dev.123.1`。它不会修改仓库里的版本文件，只在 GitHub Actions 的临时工作目录里改版本。想安装最新提交版时使用：
+每次提交到 `main` 也会自动发布一个 `next` 预发布版，版本格式类似 `0.1.0-dev.123`。它不会修改仓库里的版本文件，只在 GitHub Actions 的临时工作目录里改版本。想安装最新提交版时使用：
 
 ```powershell
 npm install -g @konbakuyomu/smart-search@next
@@ -698,7 +698,7 @@ After the first publish creates the package, run `npm trust github ...` again. F
 
 The publish workflow checks whether the same npm version already exists. If it was already published manually, Actions still runs tests and then skips `npm publish` instead of failing on a duplicate version.
 
-Every push to `main` also publishes a `next` prerelease version such as `0.1.0-dev.123.1`. It does not modify committed version files; the version is changed only inside the GitHub Actions workspace. To install the newest commit build:
+Every push to `main` also publishes a `next` prerelease version such as `0.1.0-dev.123`. It does not modify committed version files; the version is changed only inside the GitHub Actions workspace. To install the newest commit build:
 
 ```powershell
 npm install -g @konbakuyomu/smart-search@next
