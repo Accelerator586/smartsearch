@@ -4,11 +4,21 @@
 
 CLI-first web research for AI agents and command-line users. Use one command to run web search, fetch page content, map a site, inspect configuration, and save reproducible JSON or Markdown evidence.
 
+<p>
+  <a href="https://linux.do">
+    <img src="https://img.shields.io/badge/LinuxDo-community-1f6feb" alt="LinuxDo">
+  </a>
+</p>
+
+感谢真诚、友善、团结、专业的 [LinuxDo](https://linux.do) 社区。本项目的 CLI + Skills 路线和开源推广说明均来自社区交流与启发。Thanks to the [LinuxDo](https://linux.do) community for the discussions that shaped this CLI + Skills workflow.
+
 ![Star History Chart](https://api.star-history.com/svg?repos=konbakuyomu/smartsearch&type=Date)
 
 ## 中文
 
 `smart-search` 是一个给 AI 助手和命令行用户使用的网页研究工具。你可以把它理解成一个“统一搜索入口”：用同一个命令完成联网搜索、打开网页、读取站点目录、检查配置，并把结果稳定地输出成 JSON 或 Markdown。
+
+本项目认可并感谢 [LinuxDo](https://linux.do) 社区，欢迎从 LinuxDo 讨论帖进入仓库、提交反馈或参与改进。
 
 这个仓库只提供 CLI，也就是命令行工具。日常使用只需要记住一个命令：
 
@@ -298,6 +308,8 @@ npm pack --dry-run
 ## English
 
 `smart-search` is a CLI-first web research tool for AI agents and terminal users. Think of it as one stable command for searching the web, fetching page content, mapping documentation sites, checking configuration, and saving evidence as JSON or Markdown.
+
+This project acknowledges and thanks the [LinuxDo](https://linux.do) community. Feedback and discussion from LinuxDo users are welcome.
 
 This repository ships only a CLI. The main command is:
 
