@@ -207,6 +207,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         """解析非流式 completion 响应，兼容 JSON 和 SSE 文本 fallback"""
         content = ""
         body_text = response.text or ""
+        sources: list[dict] = []
 
         try:
             data = response.json()
@@ -214,11 +215,15 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             data = None
 
         if isinstance(data, dict):
+            sources = self._extract_citations(data)
             choices = data.get("choices", [])
             if choices:
                 message = choices[0].get("message", {})
                 if isinstance(message, dict):
                     content = message.get("content", "") or ""
+                    message_citations = self._normalize_citations(message.get("citations"))
+                    if message_citations:
+                        sources = self._merge_citations(sources, message_citations)
 
         # SSE fallback: 部分中转站即使设置 stream=False 仍可能返回 SSE 格式
         if not content and body_text.lstrip().startswith("data:"):
@@ -232,9 +237,66 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
             content = await self._parse_streaming_response(_LineResponse(body_text), ctx)
 
+        if content and sources:
+            content = f"{content.rstrip()}\n\nsources({json.dumps(sources, ensure_ascii=False)})"
+
         await log_info(ctx, f"content: {content}", config.debug_enabled)
 
         return content
+
+    def _extract_citations(self, data: dict) -> list[dict]:
+        sources = self._normalize_citations(data.get("citations"))
+        for choice in data.get("choices", []) or []:
+            if not isinstance(choice, dict):
+                continue
+            message = choice.get("message")
+            if isinstance(message, dict):
+                sources = self._merge_citations(sources, self._normalize_citations(message.get("citations")))
+        return sources
+
+    def _normalize_citations(self, citations) -> list[dict]:
+        if not citations:
+            return []
+        if not isinstance(citations, list):
+            citations = [citations]
+
+        normalized: list[dict] = []
+        seen: set[str] = set()
+        for item in citations:
+            source: dict = {}
+            if isinstance(item, str):
+                url = item.strip()
+                if not url.startswith(("http://", "https://")):
+                    continue
+                source["url"] = url
+            elif isinstance(item, dict):
+                url = item.get("url") or item.get("href") or item.get("link")
+                if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+                    continue
+                source["url"] = url
+                title = item.get("title") or item.get("name") or item.get("label")
+                if isinstance(title, str) and title.strip():
+                    source["title"] = title.strip()
+            else:
+                continue
+
+            if source["url"] in seen:
+                continue
+            seen.add(source["url"])
+            normalized.append(source)
+        return normalized
+
+    def _merge_citations(self, *source_lists: list[dict]) -> list[dict]:
+        merged: list[dict] = []
+        seen: set[str] = set()
+        for source_list in source_lists:
+            for item in source_list or []:
+                url = item.get("url")
+                if not isinstance(url, str) or not url or url in seen:
+                    continue
+                seen.add(url)
+                merged.append(item)
+        return merged
 
     async def _execute_completion_with_retry(self, headers: dict, payload: dict, ctx=None) -> str:
         """执行带重试机制的非流式 HTTP 请求，兼容上游返回 JSON 或 SSE 文本"""

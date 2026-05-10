@@ -199,6 +199,8 @@ def _run_setup(args: argparse.Namespace) -> int:
     values = {
         "SMART_SEARCH_API_URL": args.api_url,
         "SMART_SEARCH_API_KEY": args.api_key,
+        "SMART_SEARCH_API_MODE": args.api_mode,
+        "SMART_SEARCH_XAI_TOOLS": args.xai_tools,
         "SMART_SEARCH_MODEL": args.model,
         "EXA_API_KEY": args.exa_key,
         "TAVILY_API_KEY": args.tavily_key,
@@ -208,8 +210,10 @@ def _run_setup(args: argparse.Namespace) -> int:
     if not args.non_interactive:
         current = service.config_list(show_secrets=True)["values"]
         prompts = [
-            ("SMART_SEARCH_API_URL", "Primary OpenAI-compatible API URL", False),
+            ("SMART_SEARCH_API_URL", "Primary API URL", False),
             ("SMART_SEARCH_API_KEY", "Primary API key", False),
+            ("SMART_SEARCH_API_MODE", "Primary API mode (auto/xai-responses/chat-completions)", True),
+            ("SMART_SEARCH_XAI_TOOLS", "xAI Responses tools (web_search,x_search)", True),
             ("SMART_SEARCH_MODEL", "Default model", True),
             ("EXA_API_KEY", "Exa API key", True),
             ("TAVILY_API_KEY", "Tavily API key", True),
@@ -298,6 +302,8 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--non-interactive", action="store_true", help="Only save values passed as flags.")
     setup_parser.add_argument("--api-url", default="", help="Save SMART_SEARCH_API_URL.")
     setup_parser.add_argument("--api-key", default="", help="Save SMART_SEARCH_API_KEY.")
+    setup_parser.add_argument("--api-mode", default="", help="Save SMART_SEARCH_API_MODE.")
+    setup_parser.add_argument("--xai-tools", default="", help="Save SMART_SEARCH_XAI_TOOLS.")
     setup_parser.add_argument("--model", default="", help="Save SMART_SEARCH_MODEL.")
     setup_parser.add_argument("--exa-key", default="", help="Save EXA_API_KEY.")
     setup_parser.add_argument("--tavily-key", default="", help="Save TAVILY_API_KEY.")

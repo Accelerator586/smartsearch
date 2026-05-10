@@ -13,6 +13,8 @@ def _reset_config(monkeypatch, tmp_path):
     for key in [
         "SMART_SEARCH_API_URL",
         "SMART_SEARCH_API_KEY",
+        "SMART_SEARCH_API_MODE",
+        "SMART_SEARCH_XAI_TOOLS",
         "SMART_SEARCH_MODEL",
         "EXA_API_KEY",
         "EXA_BASE_URL",
@@ -103,6 +105,33 @@ def test_config_sources_report_config_file(monkeypatch, tmp_path):
     assert sources["SMART_SEARCH_API_URL"] == "default"
 
 
+def test_primary_api_mode_auto_resolves_xai(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    assert service.config.resolve_primary_api_mode("https://api.x.ai/v1") == "xai-responses"
+    assert service.config.resolve_primary_api_mode("https://api.example.com/v1") == "chat-completions"
+
+
+def test_primary_api_mode_can_be_configured(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    service.config_set("SMART_SEARCH_API_MODE", "chat-completions")
+
+    assert service.config.resolve_primary_api_mode("https://api.x.ai/v1") == "chat-completions"
+    assert service.config.get_config_sources()["SMART_SEARCH_API_MODE"] == "config_file"
+
+
+def test_xai_tools_validation(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    service.config_set("SMART_SEARCH_XAI_TOOLS", "web_search,x_search,web_search")
+    assert service.config.parse_xai_tools() == ["web_search", "x_search"]
+
+    service.config_set("SMART_SEARCH_XAI_TOOLS", "web_search,bad_tool")
+    with pytest.raises(ValueError, match="Invalid SMART_SEARCH_XAI_TOOLS"):
+        service.config.parse_xai_tools()
+
+
 @pytest.mark.asyncio
 async def test_search_returns_sources(monkeypatch):
     monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
@@ -118,9 +147,72 @@ async def test_search_returns_sources(monkeypatch):
     result = await service.search("what is example")
 
     assert result["ok"] is True
+    assert result["primary_api_mode"] == "chat-completions"
     assert result["content"] == "Answer."
     assert result["sources_count"] == 1
     assert result["sources"][0]["url"] == "https://example.com"
+
+
+@pytest.mark.asyncio
+async def test_search_uses_xai_responses_for_api_x_ai(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
+    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    captured = {}
+
+    async def fake_search(self, query, platform="", ctx=None):
+        captured["provider"] = self.__class__.__name__
+        captured["tools"] = self.tools
+        return "Answer [[1]](https://example.com)."
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", fake_search)
+    monkeypatch.setattr(service, "call_tavily_search", lambda *a, **k: None)
+    monkeypatch.setattr(service, "call_firecrawl_search", lambda *a, **k: None)
+
+    result = await service.search("what is example")
+
+    assert result["ok"] is True
+    assert result["primary_api_mode"] == "xai-responses"
+    assert captured["provider"] == "XAIResponsesSearchProvider"
+    assert captured["tools"] == ["web_search", "x_search"]
+    assert result["sources"][0]["url"] == "https://example.com"
+
+
+@pytest.mark.asyncio
+async def test_search_reports_invalid_xai_tools_as_parameter_error(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
+    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("SMART_SEARCH_XAI_TOOLS", "web_search,code_interpreter")
+
+    result = await service.search("what is example")
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "Invalid SMART_SEARCH_XAI_TOOLS" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_search_reports_primary_provider_http_error(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
+    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+
+    async def failing_search(self, query, platform="", ctx=None):
+        request = httpx.Request("POST", "https://api.x.ai/v1/responses")
+        response = httpx.Response(422, text="bad tools", request=request)
+        raise httpx.HTTPStatusError("bad response", request=request, response=response)
+
+    async def should_not_hide_failure(*args, **kwargs):
+        return [{"url": "https://extra.example.com"}]
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", failing_search)
+    monkeypatch.setattr(service, "call_tavily_search", should_not_hide_failure)
+
+    result = await service.search("what is example", extra_sources=1)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "network_error"
+    assert result["primary_api_mode"] == "xai-responses"
+    assert "xAI Responses HTTP 422" in result["error"]
+    assert "bad tools" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -294,3 +386,39 @@ async def test_primary_connection_falls_back_to_chat_when_models_endpoint_fails(
     assert result["chat_completion_test"]["status"] == "ok"
     assert calls[0] == ("get", "https://api.example.com/v1/models")
     assert calls[1] == ("post", "https://api.example.com/v1/chat/completions", "grok-4.3")
+
+
+@pytest.mark.asyncio
+async def test_doctor_uses_responses_endpoint_for_xai_mode(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
+    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            calls.append((url, json))
+            return httpx.Response(
+                200,
+                json={"output": [{"content": [{"type": "output_text", "text": "ok"}]}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await service.doctor()
+
+    assert result["ok"] is True
+    assert result["primary_api_mode"] == "xai-responses"
+    assert result["primary_api_mode_source"] == "default"
+    assert result["primary_connection_test"]["status"] == "ok"
+    assert calls[0][0] == "https://api.x.ai/v1/responses"
+    assert "tools" not in calls[0][1]

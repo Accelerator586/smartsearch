@@ -12,6 +12,7 @@ from .utils import extract_unique_urls
 
 
 _MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
+_INLINE_CITATION_LINK_PATTERN = re.compile(r"\[\[(\d+)\]\]\((https?://[^)]+)\)")
 _SOURCES_HEADING_PATTERN = re.compile(
     r"(?im)^"
     r"(?:#{1,6}\s*)?"
@@ -145,23 +146,29 @@ def split_answer_and_sources(text: str) -> tuple[str, list[dict]]:
         if cleaned:
             raw = cleaned
 
+    inline_sources = _extract_inline_citation_sources(raw)
+
     split = _split_function_call_sources(raw)
     if split:
-        return split
+        answer, sources = split
+        return answer, merge_sources(sources, inline_sources)
 
     split = _split_heading_sources(raw)
     if split:
-        return split
+        answer, sources = split
+        return answer, merge_sources(sources, inline_sources)
 
     split = _split_details_block_sources(raw)
     if split:
-        return split
+        answer, sources = split
+        return answer, merge_sources(sources, inline_sources)
 
     split = _split_tail_link_block(raw)
     if split:
-        return split
+        answer, sources = split
+        return answer, merge_sources(sources, inline_sources)
 
-    return raw, []
+    return raw, inline_sources
 
 
 def _split_function_call_sources(text: str) -> tuple[str, list[dict]] | None:
@@ -407,4 +414,16 @@ def _extract_sources_from_text(text: str) -> list[dict]:
         seen.add(url)
         sources.append({"url": url})
 
+    return sources
+
+
+def _extract_inline_citation_sources(text: str) -> list[dict]:
+    sources: list[dict] = []
+    seen: set[str] = set()
+    for number, url in _INLINE_CITATION_LINK_PATTERN.findall(text or ""):
+        url = (url or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        sources.append({"title": number, "url": url})
     return sources

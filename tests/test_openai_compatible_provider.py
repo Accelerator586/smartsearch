@@ -36,6 +36,8 @@ async def test_search_uses_non_stream_completion_and_headers(monkeypatch):
     assert "User-Agent" in captured["headers"]
     assert captured["headers"]["Accept"] == "application/json, text/event-stream"
     assert captured["payload"]["stream"] is False
+    assert "tools" not in captured["payload"]
+    assert "search_parameters" not in captured["payload"]
 
 
 @pytest.mark.asyncio
@@ -104,6 +106,47 @@ async def test_parse_completion_response_reads_json():
     result = await provider._parse_completion_response(response)
 
     assert result == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_parse_completion_response_appends_message_citations():
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "test-model")
+    response = DummyResponse(
+        text="",
+        json_data={
+            "choices": [
+                {
+                    "message": {
+                        "content": "hello world",
+                        "citations": [{"url": "https://example.com/a", "title": "A"}],
+                    }
+                }
+            ]
+        },
+    )
+
+    result = await provider._parse_completion_response(response)
+
+    assert "hello world" in result
+    assert "sources(" in result
+    assert "https://example.com/a" in result
+
+
+@pytest.mark.asyncio
+async def test_parse_completion_response_appends_top_level_citations():
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "test-model")
+    response = DummyResponse(
+        text="",
+        json_data={
+            "citations": ["https://example.com/top"],
+            "choices": [{"message": {"content": "hello world"}}],
+        },
+    )
+
+    result = await provider._parse_completion_response(response)
+
+    assert "hello world" in result
+    assert "https://example.com/top" in result
 
 
 @pytest.mark.asyncio

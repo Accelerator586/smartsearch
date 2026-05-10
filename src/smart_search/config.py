@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 class Config:
     _instance = None
@@ -10,9 +11,15 @@ class Config:
         "`smart-search doctor --format json`."
     )
     _DEFAULT_MODEL = "grok-4-fast"
+    _DEFAULT_API_MODE = "auto"
+    _DEFAULT_XAI_TOOLS = "web_search,x_search"
+    _ALLOWED_API_MODES = {"auto", "xai-responses", "chat-completions"}
+    _ALLOWED_XAI_TOOLS = {"web_search", "x_search"}
     _CONFIG_KEYS = {
         "SMART_SEARCH_API_URL",
         "SMART_SEARCH_API_KEY",
+        "SMART_SEARCH_API_MODE",
+        "SMART_SEARCH_XAI_TOOLS",
         "SMART_SEARCH_MODEL",
         "EXA_API_KEY",
         "EXA_BASE_URL",
@@ -119,7 +126,7 @@ class Config:
         config_data = self._load_config_file()
         config_data[key] = value
         self._save_config_file(config_data)
-        if key == "SMART_SEARCH_MODEL":
+        if key in {"SMART_SEARCH_MODEL", "SMART_SEARCH_API_URL", "SMART_SEARCH_API_MODE"}:
             self._cached_model = None
 
     def unset_config_value(self, key: str) -> None:
@@ -132,7 +139,7 @@ class Config:
             if new_key == key:
                 config_data.pop(old_key, None)
         self._save_config_file(config_data)
-        if key == "SMART_SEARCH_MODEL":
+        if key in {"SMART_SEARCH_MODEL", "SMART_SEARCH_API_URL", "SMART_SEARCH_API_MODE"}:
             self._cached_model = None
 
     def config_path_info(self) -> dict:
@@ -159,7 +166,7 @@ class Config:
         url = self._get_config_value("SMART_SEARCH_API_URL")
         if not url:
             raise ValueError(
-                f"OpenAI-compatible API URL 未配置！\n"
+                f"Primary API URL 未配置！\n"
                 f"请配置 Smart Search：\n{self._SETUP_COMMAND}"
             )
         return url
@@ -169,10 +176,53 @@ class Config:
         key = self._get_config_value("SMART_SEARCH_API_KEY")
         if not key:
             raise ValueError(
-                f"OpenAI-compatible API Key 未配置！\n"
+                f"Primary API Key 未配置！\n"
                 f"请配置 Smart Search：\n{self._SETUP_COMMAND}"
             )
         return key
+
+    @property
+    def smart_search_api_mode(self) -> str:
+        return (self._get_config_value("SMART_SEARCH_API_MODE", self._DEFAULT_API_MODE) or self._DEFAULT_API_MODE).strip().lower()
+
+    @property
+    def smart_search_xai_tools_raw(self) -> str:
+        return self._get_config_value("SMART_SEARCH_XAI_TOOLS", self._DEFAULT_XAI_TOOLS) or self._DEFAULT_XAI_TOOLS
+
+    def resolve_primary_api_mode(self, api_url: str) -> str:
+        mode = self.smart_search_api_mode
+        if mode not in self._ALLOWED_API_MODES:
+            allowed = ", ".join(sorted(self._ALLOWED_API_MODES))
+            raise ValueError(f"Invalid SMART_SEARCH_API_MODE: {mode}. Supported values: {allowed}")
+        if mode != "auto":
+            return mode
+
+        parsed_url = api_url if "://" in api_url else f"https://{api_url}"
+        host = (urlparse(parsed_url).hostname or "").lower()
+        if host == "api.x.ai":
+            return "xai-responses"
+        return "chat-completions"
+
+    def parse_xai_tools(self) -> list[str]:
+        raw = self.smart_search_xai_tools_raw
+        tools: list[str] = []
+        invalid: list[str] = []
+        seen: set[str] = set()
+        for item in raw.split(","):
+            tool = item.strip().lower()
+            if not tool:
+                continue
+            if tool not in self._ALLOWED_XAI_TOOLS:
+                invalid.append(tool)
+                continue
+            if tool not in seen:
+                seen.add(tool)
+                tools.append(tool)
+        if invalid:
+            allowed = ", ".join(sorted(self._ALLOWED_XAI_TOOLS))
+            invalid_text = ", ".join(invalid)
+            raise ValueError(f"Invalid SMART_SEARCH_XAI_TOOLS: {invalid_text}. Supported values: {allowed}")
+        return tools
 
     @property
     def tavily_enabled(self) -> bool:
@@ -296,10 +346,20 @@ class Config:
             api_key_masked = "未配置"
             config_status = f"config_error: {str(e)}"
 
+        smart_search_model = self.smart_search_model
+        try:
+            primary_api_mode = self.resolve_primary_api_mode(api_url) if api_url != "未配置" else self.smart_search_api_mode
+        except ValueError as e:
+            primary_api_mode = self.smart_search_api_mode
+            if config_status.startswith("ok:"):
+                config_status = f"config_error: {str(e)}"
+
         return {
             "SMART_SEARCH_API_URL": api_url,
             "SMART_SEARCH_API_KEY": api_key_masked,
-            "SMART_SEARCH_MODEL": self.smart_search_model,
+            "SMART_SEARCH_API_MODE": self.smart_search_api_mode,
+            "SMART_SEARCH_XAI_TOOLS": self.smart_search_xai_tools_raw,
+            "SMART_SEARCH_MODEL": smart_search_model,
             "SMART_SEARCH_DEBUG": self.debug_enabled,
             "SMART_SEARCH_LOG_LEVEL": self.log_level,
             "SMART_SEARCH_LOG_DIR": str(self.log_dir),
@@ -317,6 +377,8 @@ class Config:
             "EXA_API_KEY": self._mask_api_key(self.exa_api_key) if self.exa_api_key else "未配置",
             "EXA_BASE_URL": self.exa_base_url,
             "EXA_TIMEOUT_SECONDS": self.exa_timeout,
+            "primary_api_mode": primary_api_mode,
+            "primary_api_mode_source": self.get_config_source("SMART_SEARCH_API_MODE"),
             "config_file": str(self.config_file),
             "config_sources": self.get_config_sources(),
             "config_status": config_status

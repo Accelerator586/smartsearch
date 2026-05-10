@@ -35,12 +35,16 @@ smart-search
 
 ### 它由哪些服务组成
 
-- 主搜索接口：一个 OpenAI-compatible Chat Completions 接口，用来回答综合搜索问题。
+- 主搜索接口：支持两种路线，用来回答综合搜索问题。
+  - 官方 xAI：`SMART_SEARCH_API_URL=https://api.x.ai/v1` 时，默认走 Responses API 的 `/responses`，并启用 `web_search,x_search` 工具。
+  - 通用中转：其他 OpenAI-compatible 服务默认走 Chat Completions 的 `/chat/completions`。
 - Exa：适合查官方文档、API、论文和高质量网页。
 - Tavily：适合网页正文提取、站点 map 和补充搜索来源。
 - Firecrawl：作为网页抓取或搜索补充来源。
 
 这些服务推荐通过 `smart-search setup` 保存到当前用户的本机配置文件。仓库里不会保存你的真实 key；环境变量仍可用于 CI 或高级用户覆盖本机配置。
+
+注意：不要给 Chat Completions 中转路线强塞 xAI 的 `web_search` / `x_search` 工具或旧 `search_parameters`。xAI 的 Chat Completions Live Search 已废弃；官方联网搜索路线是 Responses API。
 
 ### 每个命令会用到哪些服务
 
@@ -122,6 +126,8 @@ smart-search config path --format json
 smart-search setup --non-interactive `
   --api-url "https://your-api.example.com/v1" `
   --api-key "your-api-key" `
+  --api-mode "auto" `
+  --xai-tools "web_search,x_search" `
   --model "your-model-name" `
   --exa-key "your-exa-key" `
   --tavily-key "your-tavily-key" `
@@ -139,6 +145,8 @@ smart-search config list --format json
 ```powershell
 $env:SMART_SEARCH_API_URL = "https://your-api.example.com/v1"
 $env:SMART_SEARCH_API_KEY = "your-api-key"
+$env:SMART_SEARCH_API_MODE = "auto"
+$env:SMART_SEARCH_XAI_TOOLS = "web_search,x_search"
 $env:SMART_SEARCH_MODEL = "your-model-name"
 ```
 
@@ -154,8 +162,10 @@ $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 
 | 变量 | 用途 |
 | --- | --- |
-| `SMART_SEARCH_API_URL` | 主搜索接口地址，要求兼容 OpenAI Chat Completions |
+| `SMART_SEARCH_API_URL` | 主搜索接口地址；`https://api.x.ai/v1` 默认走 xAI Responses API，其他地址默认走 Chat Completions |
 | `SMART_SEARCH_API_KEY` | 主搜索接口 key |
+| `SMART_SEARCH_API_MODE` | 主搜索模式：`auto`、`xai-responses`、`chat-completions`，默认 `auto` |
+| `SMART_SEARCH_XAI_TOOLS` | xAI Responses API 使用的工具，默认 `web_search,x_search`；只支持这两个值 |
 | `SMART_SEARCH_MODEL` | 默认模型名 |
 | `SMART_SEARCH_DEBUG` | 是否打开调试日志 |
 | `SMART_SEARCH_LOG_LEVEL` | 日志级别，默认 `INFO` |
@@ -173,7 +183,7 @@ $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 smart-search doctor --format json
 ```
 
-`doctor` 会遮住 key，只显示配置是否完整和各服务连通状态。
+`doctor` 会遮住 key，只显示配置是否完整、`primary_api_mode` 实际模式和各服务连通状态。`xai-responses` 模式会用无工具的最小 `/responses` 请求做连通测试；`chat-completions` 模式继续测试 `/models` 和 `/chat/completions`。
 
 ### 常用命令
 
@@ -357,12 +367,16 @@ smart-search
 
 ### Providers
 
-- Primary search endpoint: an OpenAI-compatible Chat Completions endpoint for broad research answers.
+- Primary search endpoint: two routes are supported for broad research answers.
+  - Official xAI: when `SMART_SEARCH_API_URL=https://api.x.ai/v1`, `auto` mode uses the Responses API `/responses` endpoint with `web_search,x_search` tools.
+  - Generic relays: other OpenAI-compatible services use Chat Completions `/chat/completions` by default.
 - Exa: good for official docs, APIs, papers, and high-quality pages.
 - Tavily: used for page extraction, site maps, and extra search sources.
 - Firecrawl: used as an extra search source and a fetch fallback.
 
-All providers are configured through environment variables. Do not commit real keys to this repository.
+All providers are configured through the local config file or environment variables. Do not commit real keys to this repository.
+
+Do not add xAI `web_search` / `x_search` tools or the old `search_parameters` field to Chat Completions relay requests. xAI Chat Completions Live Search is deprecated; the official xAI search path is the Responses API.
 
 ### Provider Usage By Command
 
@@ -444,6 +458,8 @@ For scripts or copy-paste setup instructions, use non-interactive mode:
 smart-search setup --non-interactive `
   --api-url "https://your-api.example.com/v1" `
   --api-key "your-api-key" `
+  --api-mode "auto" `
+  --xai-tools "web_search,x_search" `
   --model "your-model-name" `
   --exa-key "your-exa-key" `
   --tavily-key "your-tavily-key" `
@@ -461,6 +477,8 @@ Advanced users and CI can still use environment variables. Environment variables
 ```powershell
 $env:SMART_SEARCH_API_URL = "https://your-api.example.com/v1"
 $env:SMART_SEARCH_API_KEY = "your-api-key"
+$env:SMART_SEARCH_API_MODE = "auto"
+$env:SMART_SEARCH_XAI_TOOLS = "web_search,x_search"
 $env:SMART_SEARCH_MODEL = "your-model-name"
 ```
 
@@ -476,8 +494,10 @@ Common settings:
 
 | Variable | Purpose |
 | --- | --- |
-| `SMART_SEARCH_API_URL` | Primary OpenAI-compatible Chat Completions endpoint |
+| `SMART_SEARCH_API_URL` | Primary endpoint URL; `https://api.x.ai/v1` defaults to xAI Responses API, other URLs default to Chat Completions |
 | `SMART_SEARCH_API_KEY` | Primary endpoint API key |
+| `SMART_SEARCH_API_MODE` | Primary mode: `auto`, `xai-responses`, or `chat-completions`; default `auto` |
+| `SMART_SEARCH_XAI_TOOLS` | xAI Responses tools, default `web_search,x_search`; only these two values are supported |
 | `SMART_SEARCH_MODEL` | Default model name |
 | `SMART_SEARCH_DEBUG` | Enable debug logs |
 | `SMART_SEARCH_LOG_LEVEL` | Log level, defaults to `INFO` |
@@ -495,7 +515,7 @@ Check configuration:
 smart-search doctor --format json
 ```
 
-`doctor` masks keys and reports config plus provider status.
+`doctor` masks keys and reports config, resolved `primary_api_mode`, and provider status. In `xai-responses` mode it tests `/responses` with a minimal no-tool request; in `chat-completions` mode it keeps the `/models` plus `/chat/completions` checks.
 
 ### Common Commands
 

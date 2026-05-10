@@ -23,7 +23,11 @@ Use the local `smart-search` command as the default execution layer for web rese
 
 ## Provider Routing
 
-- `search` uses the primary OpenAI-compatible endpoint. It calls Tavily and/or Firecrawl only when `--extra-sources N` is greater than 0.
+- `search` uses the primary endpoint selected by `SMART_SEARCH_API_MODE`.
+- In `auto` mode, `https://api.x.ai/v1` resolves to official xAI Responses API `/responses`; all other primary URLs resolve to OpenAI-compatible Chat Completions `/chat/completions`.
+- xAI Responses mode may use only `SMART_SEARCH_XAI_TOOLS=web_search,x_search` or a subset of those tools.
+- Chat Completions mode must not send xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
+- `search` calls Tavily and/or Firecrawl only when `--extra-sources N` is greater than 0.
 - With both Tavily and Firecrawl configured, `search --extra-sources N` splits extra sources between them, with Tavily receiving about 60% and Firecrawl the rest.
 - `fetch` tries Tavily first and uses Firecrawl only as a fallback when Tavily returns no content.
 - `map` currently uses Tavily only.
@@ -66,6 +70,8 @@ smart-search map "https://docs.example.com" --instructions "Find API reference p
 smart-search setup
 smart-search config path --format json
 smart-search config list --format json
+smart-search config set SMART_SEARCH_API_MODE "xai-responses" --format json
+smart-search config set SMART_SEARCH_XAI_TOOLS "web_search,x_search" --format json
 smart-search config set EXA_API_KEY "key" --format json
 smart-search model current --format json
 smart-search model set "model-id" --format json

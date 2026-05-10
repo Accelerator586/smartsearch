@@ -263,6 +263,10 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "https://api.example.com/v1",
         "--api-key",
         "sk-test-secret",
+        "--api-mode",
+        "chat-completions",
+        "--xai-tools",
+        "web_search",
         "--model",
         "test-model",
     ])
@@ -271,6 +275,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert code == cli.EXIT_OK
     assert saved["SMART_SEARCH_API_URL"] == "https://api.example.com/v1"
     assert saved["SMART_SEARCH_API_KEY"] == "sk-test-secret"
+    assert saved["SMART_SEARCH_API_MODE"] == "chat-completions"
+    assert saved["SMART_SEARCH_XAI_TOOLS"] == "web_search"
     assert saved["SMART_SEARCH_MODEL"] == "test-model"
     assert "sk-test-secret" not in out
 

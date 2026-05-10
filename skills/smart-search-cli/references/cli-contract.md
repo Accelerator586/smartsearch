@@ -17,7 +17,7 @@
 - `smart-search exa-similar URL [--num-results N] [--format json|markdown] [--output PATH]`
 - `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown] [--output PATH]`
 - `smart-search doctor [--format json|markdown] [--output PATH]`
-- `smart-search setup [--non-interactive] [--api-url URL] [--api-key KEY] [--model ID] [--exa-key KEY] [--tavily-key KEY] [--firecrawl-key KEY] [--format json|markdown] [--output PATH]`
+- `smart-search setup [--non-interactive] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--exa-key KEY] [--tavily-key KEY] [--firecrawl-key KEY] [--format json|markdown] [--output PATH]`
 - `smart-search config path [--format json|markdown] [--output PATH]`
 - `smart-search config list [--format json|markdown] [--output PATH]`
 - `smart-search config set KEY VALUE [--format json|markdown] [--output PATH]`
@@ -28,7 +28,7 @@
 
 ## JSON Expectations
 
-Successful search output includes `ok`, `query`, `content`, `sources`, `sources_count`, and `elapsed_ms`. Each source should include at least `url` when available.
+Successful search output includes `ok`, `query`, `primary_api_mode`, `content`, `sources`, `sources_count`, and `elapsed_ms`. Each source should include at least `url` when available.
 
 Fetch output includes `ok`, `url`, `provider`, `content`, and `elapsed_ms`.
 
@@ -38,7 +38,7 @@ Exa similar output includes `ok`, `url`, `results`, `total`, and `elapsed_ms` wh
 
 Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `elapsed_ms` when successful.
 
-Diagnostic output masks keys, reports `config_file` / `config_sources`, and includes connection test objects for the primary OpenAI-compatible endpoint, Exa, Tavily, and Firecrawl. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
+Diagnostic output masks keys, reports `config_file` / `config_sources` / `primary_api_mode` / `primary_api_mode_source`, and includes connection test objects for the primary endpoint, Exa, Tavily, and Firecrawl. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
 
 Setup and config output should include `ok` and `config_file`. Saved API keys must be masked in command output.
 
@@ -46,7 +46,11 @@ Search timeout output uses `ok=false`, `error_type=network_error`, includes the 
 
 ## Provider Routing
 
-- `search` always calls the primary OpenAI-compatible endpoint. It calls Tavily and/or Firecrawl only when `--extra-sources` is greater than 0.
+- `search` calls the resolved primary endpoint. `SMART_SEARCH_API_MODE=auto` maps `https://api.x.ai/v1` to official xAI Responses API `/responses`; all other URLs map to OpenAI-compatible Chat Completions `/chat/completions`.
+- `SMART_SEARCH_API_MODE` may be explicitly set to `xai-responses` or `chat-completions`.
+- `SMART_SEARCH_XAI_TOOLS` applies only to xAI Responses mode and supports only `web_search` and `x_search`.
+- Chat Completions mode must not send xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
+- `search` calls Tavily and/or Firecrawl only when `--extra-sources` is greater than 0.
 - If both Tavily and Firecrawl are configured, `search --extra-sources N` gives about 60% of extra source slots to Tavily and the remainder to Firecrawl.
 - `fetch` tries Tavily first, then Firecrawl as fallback when Tavily returns no content.
 - `map` uses Tavily only.

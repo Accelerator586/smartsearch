@@ -10,6 +10,7 @@ from .config import config
 from .logger import log_info
 from .providers.exa import ExaSearchProvider
 from .providers.openai_compatible import OpenAICompatibleSearchProvider
+from .providers.xai_responses import XAIResponsesSearchProvider
 from .sources import merge_sources, new_session_id, split_answer_and_sources
 
 
@@ -255,6 +256,24 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
             "error": str(e),
             "session_id": session_id,
             "query": query,
+            "primary_api_mode": config.smart_search_api_mode,
+            "content": "",
+            "sources": [],
+            "sources_count": 0,
+            "elapsed_ms": _elapsed_ms(start),
+        }
+
+    try:
+        primary_api_mode = config.resolve_primary_api_mode(api_url)
+        xai_tools = config.parse_xai_tools() if primary_api_mode == "xai-responses" else []
+    except ValueError as e:
+        return {
+            "ok": False,
+            "error_type": "parameter_error",
+            "error": str(e),
+            "session_id": session_id,
+            "query": query,
+            "primary_api_mode": config.smart_search_api_mode,
             "content": "",
             "sources": [],
             "sources_count": 0,
@@ -271,6 +290,7 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
                 "error": f"无效模型: {model}",
                 "session_id": session_id,
                 "query": query,
+                "primary_api_mode": primary_api_mode,
                 "content": "",
                 "sources": [],
                 "sources_count": 0,
@@ -278,7 +298,10 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
             }
         effective_model = model
 
-    search_provider = OpenAICompatibleSearchProvider(api_url, api_key, effective_model)
+    if primary_api_mode == "xai-responses":
+        search_provider = XAIResponsesSearchProvider(api_url, api_key, effective_model, xai_tools)
+    else:
+        search_provider = OpenAICompatibleSearchProvider(api_url, api_key, effective_model)
 
     has_tavily = bool(config.tavily_api_key)
     has_firecrawl = bool(config.firecrawl_api_key)
@@ -293,28 +316,25 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
         elif has_firecrawl:
             firecrawl_count = extra_sources
 
-    async def safe_search() -> str:
-        try:
-            return await search_provider.search(query, platform)
-        except Exception:
-            return ""
-
-    coros: list[Any] = [safe_search()]
+    coros: list[Any] = [search_provider.search(query, platform)]
     if tavily_count:
         coros.append(call_tavily_search(query, tavily_count))
     if firecrawl_count:
         coros.append(call_firecrawl_search(query, firecrawl_count))
 
-    gathered = await asyncio.gather(*coros)
-    primary_result = gathered[0] or ""
+    gathered = await asyncio.gather(*coros, return_exceptions=True)
+    primary_result = gathered[0]
+    if isinstance(primary_result, BaseException):
+        return _primary_search_exception_result(start, session_id, query, primary_api_mode, search_provider.get_provider_name(), primary_result)
+    primary_result = primary_result or ""
     tavily_results: list[dict] | None = None
     firecrawl_results: list[dict] | None = None
     idx = 1
     if tavily_count:
-        tavily_results = gathered[idx]
+        tavily_results = None if isinstance(gathered[idx], BaseException) else gathered[idx]
         idx += 1
     if firecrawl_count:
-        firecrawl_results = gathered[idx]
+        firecrawl_results = None if isinstance(gathered[idx], BaseException) else gathered[idx]
 
     answer, primary_sources = split_answer_and_sources(primary_result)
     sources = merge_sources(primary_sources, extra_results_to_sources(tavily_results, firecrawl_results))
@@ -327,9 +347,79 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
         "query": query,
         "platform": platform,
         "model": effective_model,
+        "primary_api_mode": primary_api_mode,
         "content": answer,
         "sources": sources,
         "sources_count": len(sources),
+        "elapsed_ms": _elapsed_ms(start),
+    }
+
+
+def _primary_search_exception_result(
+    start: float,
+    session_id: str,
+    query: str,
+    primary_api_mode: str,
+    provider_name: str,
+    exc: BaseException,
+) -> dict[str, Any]:
+    if isinstance(exc, httpx.TimeoutException):
+        return _primary_search_error_result(
+            start,
+            session_id,
+            query,
+            primary_api_mode,
+            "network_error",
+            f"{provider_name} 请求超时: {str(exc)}",
+        )
+    if isinstance(exc, httpx.HTTPStatusError):
+        body = exc.response.text[:300] if exc.response is not None else str(exc)
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        return _primary_search_error_result(
+            start,
+            session_id,
+            query,
+            primary_api_mode,
+            "network_error",
+            f"{provider_name} HTTP {status}: {body}",
+        )
+    if isinstance(exc, httpx.RequestError):
+        return _primary_search_error_result(
+            start,
+            session_id,
+            query,
+            primary_api_mode,
+            "network_error",
+            f"{provider_name} 网络错误: {str(exc)}",
+        )
+    return _primary_search_error_result(
+        start,
+        session_id,
+        query,
+        primary_api_mode,
+        "runtime_error",
+        f"{provider_name} 运行错误: {str(exc)}",
+    )
+
+
+def _primary_search_error_result(
+    start: float,
+    session_id: str,
+    query: str,
+    primary_api_mode: str,
+    error_type: str,
+    error: str,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error_type": error_type,
+        "error": error,
+        "session_id": session_id,
+        "query": query,
+        "primary_api_mode": primary_api_mode,
+        "content": "",
+        "sources": [],
+        "sources_count": 0,
         "elapsed_ms": _elapsed_ms(start),
     }
 
@@ -490,6 +580,25 @@ async def _test_primary_connection(api_url: str, api_key: str, model: str) -> di
         return result
 
 
+async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dict[str, Any]:
+    responses_url = f"{api_url.rstrip('/')}/responses"
+    start = time.time()
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            responses_url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "input": [{"role": "user", "content": "Reply with exactly: ok"}],
+                "stream": False,
+            },
+        )
+        response_time = _elapsed_ms(start)
+        if response.status_code != 200:
+            return {"status": "warning", "message": f"HTTP {response.status_code}: {response.text[:100]}", "response_time_ms": response_time}
+        return {"status": "ok", "message": f"xAI Responses API 可用 (HTTP {response.status_code})", "response_time_ms": response_time}
+
+
 async def _test_exa_connection() -> dict[str, Any]:
     exa_key = config.exa_api_key
     if not exa_key:
@@ -528,7 +637,15 @@ async def doctor() -> dict[str, Any]:
     info = config.get_config_info()
 
     try:
-        info["primary_connection_test"] = await _test_primary_connection(config.smart_search_api_url, config.smart_search_api_key, config.smart_search_model)
+        api_url = config.smart_search_api_url
+        api_key = config.smart_search_api_key
+        model = config.smart_search_model
+        primary_api_mode = config.resolve_primary_api_mode(api_url)
+        info["primary_api_mode"] = primary_api_mode
+        if primary_api_mode == "xai-responses":
+            info["primary_connection_test"] = await _test_primary_responses(api_url, api_key, model)
+        else:
+            info["primary_connection_test"] = await _test_primary_connection(api_url, api_key, model)
     except httpx.TimeoutException:
         info["primary_connection_test"] = {"status": "timeout", "message": "请求超时（10秒），请检查网络连接或 API URL"}
     except httpx.RequestError as e:

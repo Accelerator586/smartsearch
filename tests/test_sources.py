@@ -78,6 +78,25 @@ class TestSplitAnswerAndSources:
         assert len(sources) == 1
         assert sources[0]["url"] == "https://example.com"
 
+    def test_inline_citation_sources_are_extracted_and_answer_keeps_links(self):
+        text = "The answer cites [[1]](https://example.com/a) and [[2]](https://example.com/b)."
+        answer, sources = split_answer_and_sources(text)
+        assert answer == text
+        assert [s["url"] for s in sources] == ["https://example.com/a", "https://example.com/b"]
+
+    def test_inline_citation_sources_deduplicate_by_url(self):
+        text = "A [[1]](https://example.com/a) and again [[2]](https://example.com/a)."
+        answer, sources = split_answer_and_sources(text)
+        assert answer == text
+        assert len(sources) == 1
+        assert sources[0]["url"] == "https://example.com/a"
+
+    def test_inline_citations_merge_with_function_sources(self):
+        text = 'A [[1]](https://example.com/a).\n\nsources([{"url": "https://example.com/a"}, {"url": "https://example.com/b"}])'
+        answer, sources = split_answer_and_sources(text)
+        assert "[[1]](https://example.com/a)" in answer
+        assert [s["url"] for s in sources] == ["https://example.com/a", "https://example.com/b"]
+
 
 class TestMergeSources:
     def test_deduplicates_by_url(self):
