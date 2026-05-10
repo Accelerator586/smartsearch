@@ -65,6 +65,17 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - Do not ask users to set Windows global API-key environment variables by default.
 - If keys are changed with `smart-search config set`, rerun the CLI; no Codex restart is needed.
 - If PATH is changed, a new terminal or Codex restart may be needed.
+- On this Windows host, `smart-search` may be managed by mise as `npm:@konbakuyomu/smart-search`. Do not diagnose it with `mise ls smart-search`; that asks for a non-existent mise tool name. Use `mise ls "npm:@konbakuyomu/smart-search"`, `mise which smart-search`, and `Get-Command smart-search -All`.
+- If `smart-search doctor --format json` fails with `mise ERROR cannot find binary path`, refresh the mise-managed npm install before falling back:
+
+```powershell
+mise use -g "npm:@konbakuyomu/smart-search@latest"
+mise reshim -f
+Get-Command smart-search -All | Format-List Source,CommandType,Definition
+smart-search doctor --format json
+```
+
+- If the shim still fails but `mise which smart-search` returns a real path under `npm-konbakuyomu-smart-search`, call that resolved path for the current task and report the stale shim as the blocker.
 
 ## Command Patterns
 

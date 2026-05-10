@@ -8,6 +8,9 @@
 - Private API keys should be saved with `smart-search setup` or `smart-search config set`.
 - Environment variables remain supported for CI and advanced users, and override the local config file.
 - Do not depend on MCP inline `env` values or committed API-key environment variables for CLI use.
+- On Windows with mise, the managed package name is `npm:@konbakuyomu/smart-search`; the executable remains `smart-search`.
+- If `smart-search` fails through a stale mise shim, repair with `mise use -g "npm:@konbakuyomu/smart-search@latest"` and `mise reshim -f`, then verify with `mise which smart-search` and `smart-search doctor --format json`.
+- `mise ls smart-search` is not a valid diagnostic for this package because `smart-search` is the bin name, not the mise tool identifier.
 
 ## Commands
 
