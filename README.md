@@ -342,6 +342,8 @@ npm publish --access public
 
 首发创建包之后，再重新运行 `npm trust github ...`。后续版本就可以只走 tag 触发的自动发布。
 
+发布工作流会先检查 npm 上是否已经存在同版本。如果这个版本已经手动发布过，Actions 会跑完测试后跳过 `npm publish`，避免重复版本导致失败。
+
 公开仓库前建议检查不要提交真实 key：
 
 ```powershell
@@ -685,6 +687,8 @@ npm publish --access public
 ```
 
 After the first publish creates the package, run `npm trust github ...` again. Future versions can use the tag-triggered automatic publish path.
+
+The publish workflow checks whether the same npm version already exists. If it was already published manually, Actions still runs tests and then skips `npm publish` instead of failing on a duplicate version.
 
 Before publishing, check that no real keys are committed:
 

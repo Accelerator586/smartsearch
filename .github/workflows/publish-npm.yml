@@ -34,5 +34,27 @@ jobs:
       - name: Test package
         run: npm test
 
+      - name: Read package metadata
+        id: package
+        shell: bash
+        run: |
+          echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this npm version already exists
+        id: npm-version
+        shell: bash
+        run: |
+          if npm view "${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm
+        if: steps.npm-version.outputs.published != 'true'
         run: npm publish --access public --provenance
+
+      - name: Skip existing npm version
+        if: steps.npm-version.outputs.published == 'true'
+        run: echo "npm version ${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} already exists; skipping publish."
