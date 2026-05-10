@@ -18,7 +18,7 @@ EXIT_RUNTIME_ERROR = 5
 
 
 def _json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
+    return json.dumps(data, ensure_ascii=True, indent=2)
 
 
 def _format_seconds(seconds: float) -> str:
@@ -61,6 +61,20 @@ def _render(command: str, data: dict[str, Any], fmt: str) -> str:
     return _json(data)
 
 
+def _stdout_safe(text: str) -> str:
+    encoding = sys.stdout.encoding or "utf-8"
+    errors = getattr(sys.stdout, "errors", None) or "strict"
+    try:
+        text.encode(encoding, errors=errors)
+        return text
+    except UnicodeEncodeError:
+        return text.encode(encoding, errors="backslashreplace").decode(encoding)
+
+
+def _write_stdout(text: str) -> None:
+    sys.stdout.write(_stdout_safe(text))
+
+
 def _exit_code(data: dict[str, Any]) -> int:
     if data.get("ok", False):
         return EXIT_OK
@@ -78,9 +92,9 @@ def _print_result(command: str, data: dict[str, Any], fmt: str, output: str = ""
     rendered = _render(command, data, fmt)
     if output:
         service.write_output(output, rendered)
-    sys.stdout.write(rendered)
+    _write_stdout(rendered)
     if rendered and not rendered.endswith("\n"):
-        sys.stdout.write("\n")
+        _write_stdout("\n")
     return _exit_code(data)
 
 

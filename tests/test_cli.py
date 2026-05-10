@@ -3,6 +3,22 @@ import asyncio
 from smart_search import cli
 
 
+class GbkStdout:
+    encoding = "gbk"
+    errors = "strict"
+
+    def __init__(self):
+        self.parts = []
+
+    def write(self, text):
+        text.encode(self.encoding, errors=self.errors)
+        self.parts.append(text)
+        return len(text)
+
+    def getvalue(self):
+        return "".join(self.parts)
+
+
 def test_help_contains_commands(capsys):
     try:
         cli.main(["--help"])
@@ -156,6 +172,18 @@ def test_network_error_exit_code(monkeypatch, capsys):
 
     assert code == cli.EXIT_NETWORK_ERROR
     assert json.loads(capsys.readouterr().out)["error"] == "upstream timeout"
+
+
+def test_stdout_falls_back_for_gbk_unencodable_unicode(monkeypatch):
+    fake_stdout = GbkStdout()
+    monkeypatch.setattr(cli.sys, "stdout", fake_stdout)
+
+    code = cli._print_result("exa-search", {"ok": True, "content": "A\u2060B"}, "json")
+
+    assert code == cli.EXIT_OK
+    out = fake_stdout.getvalue()
+    assert "\\u2060" in out
+    assert json.loads(out)["content"] == "A\u2060B"
 
 
 def test_real_doctor_missing_primary_url_returns_config_exit(monkeypatch, capsys):

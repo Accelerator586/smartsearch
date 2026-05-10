@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 
 from smart_search import service
@@ -252,3 +253,44 @@ async def test_doctor_redacts_secret_and_reports_config_error(monkeypatch):
     assert result["ok"] is False
     assert result["error_type"] == "config_error"
     assert result["primary_connection_test"]["status"] == "config_error"
+
+
+@pytest.mark.asyncio
+async def test_primary_connection_falls_back_to_chat_when_models_endpoint_fails(monkeypatch):
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            calls.append(("get", url))
+            return httpx.Response(
+                401,
+                json={"error": {"message": "models blocked"}},
+                request=httpx.Request("GET", url),
+            )
+
+        async def post(self, url, headers, json):
+            calls.append(("post", url, json["model"]))
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "ok"}}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await service._test_primary_connection("https://api.example.com/v1", "sk-test-secret", "grok-4.3")
+
+    assert result["status"] == "ok"
+    assert result["models_endpoint_test"]["status"] == "warning"
+    assert result["chat_completion_test"]["status"] == "ok"
+    assert calls[0] == ("get", "https://api.example.com/v1/models")
+    assert calls[1] == ("post", "https://api.example.com/v1/chat/completions", "grok-4.3")

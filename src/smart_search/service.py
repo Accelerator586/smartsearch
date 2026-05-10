@@ -431,7 +431,27 @@ async def exa_find_similar(url: str, num_results: int = 5) -> dict[str, Any]:
     return data
 
 
-async def _test_primary_connection(api_url: str, api_key: str) -> dict[str, Any]:
+async def _test_primary_chat_completion(api_url: str, api_key: str, model: str) -> dict[str, Any]:
+    chat_url = f"{api_url.rstrip('/')}/chat/completions"
+    start = time.time()
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            chat_url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+                "stream": False,
+                "max_tokens": 8,
+            },
+        )
+        response_time = _elapsed_ms(start)
+        if response.status_code != 200:
+            return {"status": "warning", "message": f"HTTP {response.status_code}: {response.text[:100]}", "response_time_ms": response_time}
+        return {"status": "ok", "message": f"聊天接口可用 (HTTP {response.status_code})", "response_time_ms": response_time}
+
+
+async def _test_primary_connection(api_url: str, api_key: str, model: str) -> dict[str, Any]:
     models_url = f"{api_url.rstrip('/')}/models"
     start = time.time()
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -441,7 +461,23 @@ async def _test_primary_connection(api_url: str, api_key: str) -> dict[str, Any]
         )
         response_time = _elapsed_ms(start)
         if response.status_code != 200:
-            return {"status": "warning", "message": f"HTTP {response.status_code}: {response.text[:100]}", "response_time_ms": response_time}
+            models_test = {"status": "warning", "message": f"HTTP {response.status_code}: {response.text[:100]}", "response_time_ms": response_time}
+            chat_test = await _test_primary_chat_completion(api_url, api_key, model)
+            if chat_test.get("status") == "ok":
+                return {
+                    "status": "ok",
+                    "message": f"{chat_test['message']}；模型列表接口不可用: {models_test['message']}",
+                    "response_time_ms": chat_test.get("response_time_ms"),
+                    "models_endpoint_test": models_test,
+                    "chat_completion_test": chat_test,
+                }
+            return {
+                "status": "warning",
+                "message": f"模型列表接口不可用: {models_test['message']}；聊天接口不可用: {chat_test.get('message', '')}",
+                "response_time_ms": chat_test.get("response_time_ms", response_time),
+                "models_endpoint_test": models_test,
+                "chat_completion_test": chat_test,
+            }
         result: dict[str, Any] = {"status": "ok", "message": f"成功获取模型列表 (HTTP {response.status_code})", "response_time_ms": response_time}
         try:
             models_data = response.json()
@@ -492,7 +528,7 @@ async def doctor() -> dict[str, Any]:
     info = config.get_config_info()
 
     try:
-        info["primary_connection_test"] = await _test_primary_connection(config.smart_search_api_url, config.smart_search_api_key)
+        info["primary_connection_test"] = await _test_primary_connection(config.smart_search_api_url, config.smart_search_api_key, config.smart_search_model)
     except httpx.TimeoutException:
         info["primary_connection_test"] = {"status": "timeout", "message": "请求超时（10秒），请检查网络连接或 API URL"}
     except httpx.RequestError as e:
