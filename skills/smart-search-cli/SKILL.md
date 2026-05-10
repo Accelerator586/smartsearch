@@ -66,16 +66,23 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - If keys are changed with `smart-search config set`, rerun the CLI; no Codex restart is needed.
 - If PATH is changed, a new terminal or Codex restart may be needed.
 - On this Windows host, `smart-search` may be managed by mise as `npm:@konbakuyomu/smart-search`. Do not diagnose it with `mise ls smart-search`; that asks for a non-existent mise tool name. Use `mise ls "npm:@konbakuyomu/smart-search"`, `mise which smart-search`, and `Get-Command smart-search -All`.
-- If `smart-search doctor --format json` fails with `mise ERROR cannot find binary path`, refresh the mise-managed npm install before falling back:
+- If `smart-search doctor --format json` fails through a stale mise shim, first verify the real installed binary and call it directly for the current task:
+
+```powershell
+Get-Command smart-search -All | Format-List Source,CommandType,Definition
+Get-ChildItem "$env:LOCALAPPDATA\mise\installs\npm-konbakuyomu-smart-search" -Directory
+& "$env:LOCALAPPDATA\mise\installs\npm-konbakuyomu-smart-search\0.1.4\smart-search.cmd" doctor --format json
+```
+
+- Only after confirming the real install is missing, refresh mise:
 
 ```powershell
 mise use -g "npm:@konbakuyomu/smart-search@latest"
 mise reshim -f
-Get-Command smart-search -All | Format-List Source,CommandType,Definition
 smart-search doctor --format json
 ```
 
-- If the shim still fails but `mise which smart-search` returns a real path under `npm-konbakuyomu-smart-search`, call that resolved path for the current task and report the stale shim as the blocker.
+- If `mise reshim` fails on `C:\Users\dxt98\AppData\Local\mise\shims\.mode` with access denied, do not keep retrying it. Use the real installed `smart-search.cmd` path for the current task and report the shim permission issue separately.
 
 ## Command Patterns
 

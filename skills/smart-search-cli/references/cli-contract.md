@@ -9,7 +9,9 @@
 - Environment variables remain supported for CI and advanced users, and override the local config file.
 - Do not depend on MCP inline `env` values or committed API-key environment variables for CLI use.
 - On Windows with mise, the managed package name is `npm:@konbakuyomu/smart-search`; the executable remains `smart-search`.
-- If `smart-search` fails through a stale mise shim, repair with `mise use -g "npm:@konbakuyomu/smart-search@latest"` and `mise reshim -f`, then verify with `mise which smart-search` and `smart-search doctor --format json`.
+- If `smart-search` fails through a stale mise shim, first check the real install under `%LOCALAPPDATA%\mise\installs\npm-konbakuyomu-smart-search\` and call its `smart-search.cmd` directly for the current task.
+- Repair mise with `mise use -g "npm:@konbakuyomu/smart-search@latest"` and `mise reshim -f` only when the real install is missing or outdated.
+- If `mise reshim` fails on `shims\.mode` with access denied, treat it as a shim permission issue and use the real installed binary path instead of retrying.
 - `mise ls smart-search` is not a valid diagnostic for this package because `smart-search` is the bin name, not the mise tool identifier.
 
 ## Commands
