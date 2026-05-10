@@ -170,13 +170,13 @@ async def test_exa_search_normalizes_error_json(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_doctor_redacts_secret_and_reports_config_error(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-very-secret-value")
+    monkeypatch.setenv("SMART_SEARCH_API_KEY", "placeholder-test-secret")
     monkeypatch.delenv("SMART_SEARCH_API_URL", raising=False)
 
     result = await service.doctor()
     dumped = json.dumps(result, ensure_ascii=False)
 
-    assert "sk-very-secret-value" not in dumped
+    assert "placeholder-test-secret" not in dumped
     assert "❌" not in dumped
     assert "✅" not in dumped
     assert result["ok"] is False

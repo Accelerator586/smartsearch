@@ -153,7 +153,7 @@ def test_network_error_exit_code(monkeypatch, capsys):
 
 
 def test_real_doctor_missing_primary_url_returns_config_exit(monkeypatch, capsys):
-    secret = "sk-real-doctor-secret"
+    secret = "placeholder-test-secret"
     monkeypatch.delenv("SMART_SEARCH_API_URL", raising=False)
     monkeypatch.setenv("SMART_SEARCH_API_KEY", secret)
     monkeypatch.delenv("EXA_API_KEY", raising=False)
