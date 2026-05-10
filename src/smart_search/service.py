@@ -16,6 +16,10 @@ from .sources import merge_sources, new_session_id, split_answer_and_sources
 
 _AVAILABLE_MODELS_CACHE: dict[tuple[str, str], list[str]] = {}
 _AVAILABLE_MODELS_LOCK = asyncio.Lock()
+SOURCE_PROVENANCE_WARNING = (
+    "extra_sources are retrieved in parallel and are not automatically used to verify generated content; "
+    "use fetch on key URLs for claim-level evidence."
+)
 
 
 def _elapsed_ms(start: float) -> float:
@@ -260,6 +264,11 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
             "content": "",
             "sources": [],
             "sources_count": 0,
+            "primary_sources": [],
+            "primary_sources_count": 0,
+            "extra_sources": [],
+            "extra_sources_count": 0,
+            "source_warning": "",
             "elapsed_ms": _elapsed_ms(start),
         }
 
@@ -277,6 +286,11 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
             "content": "",
             "sources": [],
             "sources_count": 0,
+            "primary_sources": [],
+            "primary_sources_count": 0,
+            "extra_sources": [],
+            "extra_sources_count": 0,
+            "source_warning": "",
             "elapsed_ms": _elapsed_ms(start),
         }
 
@@ -294,6 +308,11 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
                 "content": "",
                 "sources": [],
                 "sources_count": 0,
+                "primary_sources": [],
+                "primary_sources_count": 0,
+                "extra_sources": [],
+                "extra_sources_count": 0,
+                "source_warning": "",
                 "elapsed_ms": _elapsed_ms(start),
             }
         effective_model = model
@@ -337,7 +356,8 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
         firecrawl_results = None if isinstance(gathered[idx], BaseException) else gathered[idx]
 
     answer, primary_sources = split_answer_and_sources(primary_result)
-    sources = merge_sources(primary_sources, extra_results_to_sources(tavily_results, firecrawl_results))
+    extra_source_items = extra_results_to_sources(tavily_results, firecrawl_results)
+    sources = merge_sources(primary_sources, extra_source_items)
     ok = bool(answer or sources)
     return {
         "ok": ok,
@@ -351,6 +371,11 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
         "content": answer,
         "sources": sources,
         "sources_count": len(sources),
+        "primary_sources": primary_sources,
+        "primary_sources_count": len(primary_sources),
+        "extra_sources": extra_source_items,
+        "extra_sources_count": len(extra_source_items),
+        "source_warning": SOURCE_PROVENANCE_WARNING if extra_source_items else "",
         "elapsed_ms": _elapsed_ms(start),
     }
 
@@ -420,6 +445,11 @@ def _primary_search_error_result(
         "content": "",
         "sources": [],
         "sources_count": 0,
+        "primary_sources": [],
+        "primary_sources_count": 0,
+        "extra_sources": [],
+        "extra_sources_count": 0,
+        "source_warning": "",
         "elapsed_ms": _elapsed_ms(start),
     }
 

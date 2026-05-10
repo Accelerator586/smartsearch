@@ -35,6 +35,11 @@ def _search_timeout_result(query: str, timeout: float) -> dict[str, Any]:
         "content": "",
         "sources": [],
         "sources_count": 0,
+        "primary_sources": [],
+        "primary_sources_count": 0,
+        "extra_sources": [],
+        "extra_sources_count": 0,
+        "source_warning": "",
         "timeout_seconds": timeout,
     }
 
@@ -42,6 +47,26 @@ def _search_timeout_result(query: str, timeout: float) -> dict[str, Any]:
 def _format_markdown(command: str, data: dict[str, Any]) -> str:
     if command == "search":
         lines = [data.get("content", "")]
+        primary_sources = data.get("primary_sources") or []
+        extra_sources = data.get("extra_sources") or []
+        if primary_sources or extra_sources:
+            warning = data.get("source_warning") or ""
+            if warning:
+                lines.append(f"\n> {warning}")
+            if primary_sources:
+                lines.append("\n## Primary Sources")
+                for item in primary_sources:
+                    url = item.get("url", "")
+                    title = item.get("title") or item.get("provider") or url
+                    lines.append(f"- [{title}]({url})")
+            if extra_sources:
+                lines.append("\n## Extra Sources")
+                for item in extra_sources:
+                    url = item.get("url", "")
+                    title = item.get("title") or item.get("provider") or url
+                    lines.append(f"- [{title}]({url})")
+            return "\n".join(lines).strip() + "\n"
+
         sources = data.get("sources") or []
         if sources:
             lines.append("\n## Sources")

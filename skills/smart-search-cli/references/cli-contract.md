@@ -28,7 +28,14 @@
 
 ## JSON Expectations
 
-Successful search output includes `ok`, `query`, `primary_api_mode`, `content`, `sources`, `sources_count`, and `elapsed_ms`. Each source should include at least `url` when available.
+Successful search output includes `ok`, `query`, `primary_api_mode`, `content`, `sources`, `sources_count`, `primary_sources`, `primary_sources_count`, `extra_sources`, `extra_sources_count`, `source_warning`, and `elapsed_ms`. Each source should include at least `url` when available.
+
+Source provenance fields:
+
+- `primary_sources`: sources explicitly extracted from the primary model/provider answer.
+- `extra_sources`: parallel Tavily / Firecrawl candidates from `--extra-sources`; these are not automatic evidence for the generated `content`.
+- `sources`: backward-compatible merged list from `primary_sources + extra_sources`, deduped by URL.
+- `source_warning`: non-empty when extra source candidates were appended.
 
 Fetch output includes `ok`, `url`, `provider`, `content`, and `elapsed_ms`.
 
@@ -42,7 +49,7 @@ Diagnostic output masks keys, reports `config_file` / `config_sources` / `primar
 
 Setup and config output should include `ok` and `config_file`. Saved API keys must be masked in command output.
 
-Search timeout output uses `ok=false`, `error_type=network_error`, includes the timeout seconds in `error`, keeps `query`, `content`, `sources`, and `sources_count`, and exits with code `4`.
+Search timeout output uses `ok=false`, `error_type=network_error`, includes the timeout seconds in `error`, keeps `query`, `content`, `sources`, `sources_count`, `primary_sources`, `primary_sources_count`, `extra_sources`, and `extra_sources_count`, and exits with code `4`.
 
 ## Provider Routing
 
@@ -52,6 +59,7 @@ Search timeout output uses `ok=false`, `error_type=network_error`, includes the 
 - Chat Completions mode must not send xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
 - `search` calls Tavily and/or Firecrawl only when `--extra-sources` is greater than 0.
 - If both Tavily and Firecrawl are configured, `search --extra-sources N` gives about 60% of extra source slots to Tavily and the remainder to Firecrawl.
+- `extra_sources` are retrieved in parallel and are not automatically used by the primary model to verify its answer.
 - `fetch` tries Tavily first, then Firecrawl as fallback when Tavily returns no content.
 - `map` uses Tavily only.
 - `exa-search` and `exa-similar` use Exa only.
@@ -67,6 +75,7 @@ Search timeout output uses `ok=false`, `error_type=network_error`, includes the 
 - Use `fetch --format markdown` for user-supplied URLs or when exact page text matters.
 - Use `map` before fetching many pages from a documentation site.
 - Keep `search --extra-sources` small (`1` to `3`) unless broad coverage is requested.
+- For current news or high-risk claims, prefer source discovery plus `fetch`; do not treat broad `search.content` plus `extra_sources` as claim-level verification.
 
 ## Exit Codes
 

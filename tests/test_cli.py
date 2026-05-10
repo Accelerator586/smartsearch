@@ -129,6 +129,11 @@ def test_search_timeout_outputs_json_and_exit_4(monkeypatch, capsys):
     assert data["content"] == ""
     assert data["sources"] == []
     assert data["sources_count"] == 0
+    assert data["primary_sources"] == []
+    assert data["primary_sources_count"] == 0
+    assert data["extra_sources"] == []
+    assert data["extra_sources_count"] == 0
+    assert data["source_warning"] == ""
 
 
 def test_markdown_search_includes_sources(monkeypatch, capsys):
@@ -148,6 +153,36 @@ def test_markdown_search_includes_sources(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Answer" in out
     assert "[Example](https://example.com)" in out
+
+
+def test_markdown_search_labels_primary_and_extra_sources(monkeypatch, capsys):
+    async def fake_search(query, platform="", model="", extra_sources=0):
+        return {
+            "ok": True,
+            "content": "Answer",
+            "primary_sources": [{"url": "https://primary.example.com", "title": "Primary"}],
+            "primary_sources_count": 1,
+            "extra_sources": [{"url": "https://extra.example.com", "title": "Extra"}],
+            "extra_sources_count": 1,
+            "sources": [
+                {"url": "https://primary.example.com", "title": "Primary"},
+                {"url": "https://extra.example.com", "title": "Extra"},
+            ],
+            "sources_count": 2,
+            "source_warning": "extra_sources are retrieved in parallel",
+        }
+
+    monkeypatch.setattr(cli.service, "search", fake_search)
+
+    code = cli.main(["search", "query", "--format", "markdown"])
+
+    assert code == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert "## Primary Sources" in out
+    assert "[Primary](https://primary.example.com)" in out
+    assert "## Extra Sources" in out
+    assert "[Extra](https://extra.example.com)" in out
+    assert "extra_sources are retrieved in parallel" in out
 
 
 def test_config_error_exit_code(monkeypatch, capsys):

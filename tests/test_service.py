@@ -150,7 +150,40 @@ async def test_search_returns_sources(monkeypatch):
     assert result["primary_api_mode"] == "chat-completions"
     assert result["content"] == "Answer."
     assert result["sources_count"] == 1
+    assert result["primary_sources_count"] == 1
+    assert result["extra_sources_count"] == 0
     assert result["sources"][0]["url"] == "https://example.com"
+    assert result["primary_sources"][0]["url"] == "https://example.com"
+    assert result["extra_sources"] == []
+    assert result["source_warning"] == ""
+
+
+@pytest.mark.asyncio
+async def test_search_splits_primary_and_extra_sources(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-secret")
+
+    async def fake_search(self, query, platform="", ctx=None):
+        return 'Answer.\n\nsources([{"url":"https://primary.example.com","title":"Primary"}])'
+
+    async def fake_tavily_search(query, max_results=6):
+        return [{"url": "https://extra.example.com", "title": "Extra", "content": "candidate"}]
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
+    monkeypatch.setattr(service, "call_tavily_search", fake_tavily_search)
+    monkeypatch.setattr(service, "call_firecrawl_search", lambda *a, **k: None)
+
+    result = await service.search("what is example", extra_sources=1)
+
+    assert result["ok"] is True
+    assert result["sources_count"] == 2
+    assert result["primary_sources_count"] == 1
+    assert result["extra_sources_count"] == 1
+    assert result["primary_sources"][0]["url"] == "https://primary.example.com"
+    assert result["extra_sources"][0]["url"] == "https://extra.example.com"
+    assert result["extra_sources"][0]["provider"] == "tavily"
+    assert "not automatically used to verify generated content" in result["source_warning"]
 
 
 @pytest.mark.asyncio
@@ -188,6 +221,8 @@ async def test_search_reports_invalid_xai_tools_as_parameter_error(monkeypatch):
     assert result["ok"] is False
     assert result["error_type"] == "parameter_error"
     assert "Invalid SMART_SEARCH_XAI_TOOLS" in result["error"]
+    assert result["primary_sources"] == []
+    assert result["extra_sources"] == []
 
 
 @pytest.mark.asyncio
@@ -213,6 +248,9 @@ async def test_search_reports_primary_provider_http_error(monkeypatch):
     assert result["primary_api_mode"] == "xai-responses"
     assert "xAI Responses HTTP 422" in result["error"]
     assert "bad tools" in result["error"]
+    assert result["sources"] == []
+    assert result["primary_sources"] == []
+    assert result["extra_sources"] == []
 
 
 @pytest.mark.asyncio

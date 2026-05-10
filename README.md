@@ -66,6 +66,14 @@ smart-search
 - 如果只配置了 Firecrawl，就只用 Firecrawl 补来源。
 - 如果不传 `--extra-sources`，`search` 只调用主搜索接口，不额外调用 Tavily / Firecrawl。
 
+输出里的来源字段分三层：
+
+- `primary_sources`：主搜索接口回答中明确带出的来源，更接近回答本身的引用依据。
+- `extra_sources`：Tavily / Firecrawl 并行检索到的候选来源，用来补充查证方向。
+- `sources`：为了兼容旧脚本保留的合并列表，等于 `primary_sources + extra_sources` 去重后结果。
+
+注意：`extra_sources` 不是自动事实校验。也就是说，`sources_count > 0` 只能说明工具找到了来源链接，不代表回答里的每一句话都已经被这些链接验证。新闻、政策、财经、医疗等高风险问题，建议先用 `exa-search` 找可靠来源，再用 `fetch` 抓正文，最后只基于已抓取的正文做总结。
+
 ### 安装
 
 #### 普通用户：通过 npm 全局安装
@@ -317,6 +325,12 @@ smart-search exa-search "Python packaging guide" --format json --output result.j
 2. 把大问题拆成几个小问题分别查。
 3. 先用 `exa-search` 找来源，再用 `fetch` 抓关键网页。
 
+如果你在查“今天发生了什么”这类新闻：
+
+1. 不要只用一个很宽泛的 `search` 结果直接写结论。
+2. 先用 `exa-search` 或带来源名称的 `search --platform` 找到 Reuters、AP、BBC、新华社、官方发布页等相对可靠链接。
+3. 对关键链接运行 `fetch`，最终回答只引用抓取正文中能确认的信息。
+
 如果只想确认工具本身是否正常：
 
 ```powershell
@@ -397,6 +411,14 @@ Do not add xAI `web_search` / `x_search` tools or the old `search_parameters` fi
 - If only Tavily is configured, only Tavily is used for extra sources.
 - If only Firecrawl is configured, only Firecrawl is used for extra sources.
 - If `--extra-sources` is omitted, `search` only calls the primary endpoint.
+
+Search output separates source provenance:
+
+- `primary_sources`: sources explicitly extracted from the primary search answer.
+- `extra_sources`: parallel Tavily / Firecrawl candidate links for follow-up checks.
+- `sources`: the backward-compatible merged list, deduped from `primary_sources + extra_sources`.
+
+Important: `extra_sources` are not automatic fact verification. `sources_count > 0` means links were found; it does not prove every claim in `content`. For news, policy, finance, health, or other high-risk facts, use `exa-search` to find reliable pages, `fetch` key URLs, and summarize only from fetched page text.
 
 ### Installation
 
@@ -648,6 +670,12 @@ If `search` is slow:
 1. Reduce `--extra-sources`, for example from `5` to `1`.
 2. Split a broad question into smaller searches.
 3. Use `exa-search` to find sources first, then `fetch` key pages.
+
+For current-news questions:
+
+1. Do not rely on one broad `search` result as final evidence.
+2. Use `exa-search` or source-focused `search --platform` to find reliable pages such as Reuters, AP, BBC, official releases, or domain-specific primary sources.
+3. Run `fetch` on key URLs and cite only facts confirmed by fetched page text.
 
 To check whether the tool itself works:
 

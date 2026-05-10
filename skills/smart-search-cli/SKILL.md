@@ -18,8 +18,8 @@ Use the local `smart-search` command as the default execution layer for web rese
 7. Use `smart-search fetch` when the user gives a URL or a claim depends on page content.
 8. Use `smart-search map` when a documentation site or domain structure matters.
 9. Use `smart-search model current` or `model set` only for explicit model checks or changes.
-10. For complex current-news work, split the task: run targeted `exa-search` queries, fetch key URLs, then optionally run a short `search` synthesis. Avoid one long all-purpose query.
-11. Preserve command lines and source URLs in your answer. Cite URLs from `sources` or result records.
+10. For current-news, policy, finance, health, or other high-risk facts, do not answer from broad `search.content` alone. Find reliable URLs with `exa-search` or source-focused `search`, then `fetch` key pages and summarize only what the fetched text supports.
+11. Preserve command lines and source URLs in your answer. Prefer citing fetched pages or `primary_sources`; treat `extra_sources` as follow-up candidates, not verified evidence for generated claims.
 
 ## Provider Routing
 
@@ -29,6 +29,8 @@ Use the local `smart-search` command as the default execution layer for web rese
 - Chat Completions mode must not send xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
 - `search` calls Tavily and/or Firecrawl only when `--extra-sources N` is greater than 0.
 - With both Tavily and Firecrawl configured, `search --extra-sources N` splits extra sources between them, with Tavily receiving about 60% and Firecrawl the rest.
+- Search JSON separates `primary_sources`, `extra_sources`, and backward-compatible merged `sources`.
+- `primary_sources` are extracted from the primary model answer. `extra_sources` are parallel Tavily / Firecrawl candidates and are not automatically used to verify `content`.
 - `fetch` tries Tavily first and uses Firecrawl only as a fallback when Tavily returns no content.
 - `map` currently uses Tavily only.
 - `exa-search` and `exa-similar` use Exa only.
@@ -37,6 +39,12 @@ Use the local `smart-search` command as the default execution layer for web rese
 ## Evidence Files
 
 For multi-source research, use `--output` to save evidence under `C:\tmp\smart-search-evidence\` with a descriptive timestamped filename. Stdout should still contain the full JSON result unless markdown was explicitly chosen for human reading.
+
+For claim-level evidence, prefer this order:
+
+1. Discover candidate URLs with `exa-search` or source-focused `search`.
+2. Fetch the exact pages that matter.
+3. Use broad `search` only as synthesis or discovery, and mark claims as unverified when only `extra_sources` are available.
 
 Prefer shorter, source-directed commands:
 
@@ -84,6 +92,7 @@ smart-search regression
 - Prefer JSON for agent parsing and markdown for fetched page text intended for reading.
 - Use `--output` for multi-source work, long pages, or anything the answer may need to cite later.
 - Keep `--extra-sources` small (`1` to `3`) unless the user asks for broad coverage. Large values are slower and can add noise.
+- Do not cite `extra_sources` as proof for a sentence in `content`; fetch the URL first or cite it only as a candidate source.
 - Prefer `exa-search --include-domains` for official documentation when likely domains are known.
 - Do not expose API keys. Treat `doctor` output as safe only because it is expected to mask secrets.
 - In this CLI-first workflow, native `web_search` is disabled unless the user explicitly configures another approved route.
