@@ -83,6 +83,7 @@ smart-search doctor --format json
 ```
 
 - If `mise reshim` fails on `C:\Users\dxt98\AppData\Local\mise\shims\.mode` with access denied, do not keep retrying it. Use the real installed `smart-search.cmd` path for the current task and report the shim permission issue separately.
+- If `Get-Command smart-search -All` or `where smart-search` shows `C:\Users\dxt98\AppData\Local\mise\shims\smart-search.exe`, treat that binary shim as stale. It may bypass the fixed `.ps1` / `.cmd` wrappers and emit `mise ERROR cannot find binary path`; prefer `smart-search.cmd` or the real install path.
 
 ## Command Patterns
 
