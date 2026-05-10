@@ -54,6 +54,24 @@ smart-search
 
 ### 安装
 
+#### 普通用户：通过 npm 全局安装
+
+如果你只是想像 `ctx7` 一样直接装一个命令，推荐用 npm：
+
+```powershell
+npm install -g @konbakuyomu/smart-search@latest
+smart-search --help
+```
+
+这个 npm 包会在安装时自动创建一个独立的 Python 虚拟环境，并把本仓库里的 Python CLI 安装进去。你仍然只需要使用 `smart-search` 这个命令。
+
+前置条件：
+
+- Node.js / npm 已安装。
+- Python 3.10 或更新版本已安装，并且终端里能运行 `python`、`python3` 或 Windows 的 `py -3`。
+
+#### 开发者：从源码安装
+
 先进入仓库目录：
 
 ```powershell
@@ -269,6 +287,61 @@ smart-search regression
 .\.venv\Scripts\python.exe -m smart_search.cli regression
 ```
 
+验证 npm 包装层：
+
+```powershell
+npm install
+npm test
+npm pack --dry-run
+```
+
+### npm 发布路线
+
+本仓库的 npm 包名是 `@konbakuyomu/smart-search`。安装后的命令仍然叫 `smart-search`。
+
+首次发布前，维护者需要做一次 npm Trusted Publishing 绑定。先确认已经登录 npm：
+
+```powershell
+npm login
+npm whoami
+```
+
+然后用新版 npm 绑定 GitHub Actions 工作流：
+
+```powershell
+npx npm@latest trust github @konbakuyomu/smart-search --repo konbakuyomu/smartsearch --file publish-npm.yml --yes
+```
+
+这个绑定的意思是：只有 `konbakuyomu/smartsearch` 仓库里的 `.github/workflows/publish-npm.yml` 可以通过 GitHub Actions 发布这个 npm 包。仓库不需要保存长期 `NPM_TOKEN`。
+
+日常发布步骤：
+
+```powershell
+git status --short --branch
+npm version patch
+git push origin main
+git push origin v0.1.1
+```
+
+`npm version patch` 会同步更新 `package.json`、`package-lock.json` 和 `pyproject.toml`，这样 npm 包版本和 Python 包版本不会分叉。
+
+如果是第一次发布当前版本，可以直接打当前版本标签：
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions 会在推送 `v*` 标签时运行测试，然后执行 `npm publish --access public --provenance`。
+
+如果 `npm trust github ...` 在包还没发布前返回 `E403`，先用本机登录态做一次首发：
+
+```powershell
+npm publish --access public
+```
+
+首发创建包之后，再重新运行 `npm trust github ...`。后续版本就可以只走 tag 触发的自动发布。
+
 公开仓库前建议检查不要提交真实 key：
 
 ```powershell
@@ -324,6 +397,24 @@ All providers are configured through environment variables. Do not commit real k
 - If `--extra-sources` is omitted, `search` only calls the primary endpoint.
 
 ### Installation
+
+#### Users: install globally with npm
+
+If you want a one-command install similar to `ctx7`, use npm:
+
+```powershell
+npm install -g @konbakuyomu/smart-search@latest
+smart-search --help
+```
+
+The npm package creates an isolated Python virtual environment during installation and installs this repository's Python CLI into it. The command remains `smart-search`.
+
+Prerequisites:
+
+- Node.js / npm is installed.
+- Python 3.10 or newer is installed and available as `python`, `python3`, or `py -3` on Windows.
+
+#### Developers: install from source
 
 Enter the repository:
 
@@ -539,6 +630,61 @@ Run CLI regression tests:
 ```powershell
 .\.venv\Scripts\python.exe -m smart_search.cli regression
 ```
+
+Verify the npm wrapper:
+
+```powershell
+npm install
+npm test
+npm pack --dry-run
+```
+
+### npm Publishing
+
+The npm package name is `@konbakuyomu/smart-search`. The installed command is still `smart-search`.
+
+Before the first release, the maintainer must configure npm Trusted Publishing once. First make sure npm login works:
+
+```powershell
+npm login
+npm whoami
+```
+
+Then bind the GitHub Actions workflow with a current npm CLI:
+
+```powershell
+npx npm@latest trust github @konbakuyomu/smart-search --repo konbakuyomu/smartsearch --file publish-npm.yml --yes
+```
+
+This allows only `.github/workflows/publish-npm.yml` in `konbakuyomu/smartsearch` to publish this package through GitHub Actions. The repository does not need a long-lived `NPM_TOKEN` secret.
+
+Normal release flow:
+
+```powershell
+git status --short --branch
+npm version patch
+git push origin main
+git push origin v0.1.1
+```
+
+`npm version patch` keeps `package.json`, `package-lock.json`, and `pyproject.toml` in sync, so the npm package version and Python package version do not drift.
+
+For the first release of the current version:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions runs on `v*` tags, tests the package, and publishes with `npm publish --access public --provenance`.
+
+If `npm trust github ...` returns `E403` before the package exists, do one local bootstrap publish first:
+
+```powershell
+npm publish --access public
+```
+
+After the first publish creates the package, run `npm trust github ...` again. Future versions can use the tag-triggered automatic publish path.
 
 Before publishing, check that no real keys are committed:
 

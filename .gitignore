@@ -6,7 +6,10 @@ build/
 .eggs/
 *.egg
 .venv/
+.smart-search-python/
 .env
 .smart-search/
 logs/
 .pytest_cache/
+node_modules/
+*.tgz
