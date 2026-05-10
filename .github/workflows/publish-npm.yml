@@ -2,6 +2,8 @@ name: Publish npm package
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
@@ -34,6 +36,23 @@ jobs:
       - name: Test package
         run: npm test
 
+      - name: Prepare npm release metadata
+        id: release
+        shell: bash
+        run: |
+          base_version="$(node -p "require('./package.json').version")"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            tag="latest"
+            node npm/scripts/set-package-version.js "$version"
+          else
+            version="${base_version}-dev.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+            tag="next"
+            node npm/scripts/set-package-version.js "$version"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Read package metadata
         id: package
         shell: bash
@@ -53,7 +72,7 @@ jobs:
 
       - name: Publish to npm
         if: steps.npm-version.outputs.published != 'true'
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --tag "${{ steps.release.outputs.tag }}"
 
       - name: Skip existing npm version
         if: steps.npm-version.outputs.published == 'true'
