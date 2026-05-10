@@ -5,6 +5,24 @@ import pytest
 from smart_search import service
 
 
+def _reset_config(monkeypatch, tmp_path):
+    fake_config_file = tmp_path / "config.json"
+    monkeypatch.setattr(service.config, "_config_file", fake_config_file)
+    monkeypatch.setattr(service.config, "_cached_model", None)
+    for key in [
+        "SMART_SEARCH_API_URL",
+        "SMART_SEARCH_API_KEY",
+        "SMART_SEARCH_MODEL",
+        "EXA_API_KEY",
+        "EXA_BASE_URL",
+        "TAVILY_API_KEY",
+        "TAVILY_API_URL",
+        "FIRECRAWL_API_KEY",
+    ]:
+        monkeypatch.delenv(key, raising=False)
+    return fake_config_file
+
+
 def test_model_set_and_current_use_temp_config(monkeypatch):
     fake_config_file = service.Path("memory:/smart-search-test-config.json")
     stored_config = {}
@@ -28,8 +46,60 @@ def test_model_set_and_current_use_temp_config(monkeypatch):
     assert set_result["ok"] is True
     assert set_result["current_model"] == "grok-4-fast"
     assert current_result["model"] == "grok-4-fast"
-    assert stored_config["model"] == "grok-4-fast"
+    assert stored_config["SMART_SEARCH_MODEL"] == "grok-4-fast"
     assert set_result["config_file"] == str(fake_config_file)
+
+
+def test_config_set_list_unset_and_path(monkeypatch, tmp_path):
+    fake_config_file = _reset_config(monkeypatch, tmp_path)
+
+    set_result = service.config_set("SMART_SEARCH_API_KEY", "sk-test-secret")
+    list_result = service.config_list()
+    path_result = service.config_path()
+
+    assert set_result["ok"] is True
+    assert set_result["value"].startswith("sk-t")
+    assert "secret" not in json.dumps(list_result)
+    assert list_result["values"]["SMART_SEARCH_API_KEY"].startswith("sk-t")
+    assert path_result["config_file"] == str(fake_config_file)
+
+    unset_result = service.config_unset("SMART_SEARCH_API_KEY")
+    assert unset_result["ok"] is True
+    assert "SMART_SEARCH_API_KEY" not in service.config_list()["values"]
+
+
+def test_config_file_supplies_primary_settings(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    service.config_set("SMART_SEARCH_API_URL", "https://config.example.com/v1")
+    service.config_set("SMART_SEARCH_API_KEY", "sk-config-secret")
+    service.config_set("SMART_SEARCH_MODEL", "config-model")
+
+    assert service.config.smart_search_api_url == "https://config.example.com/v1"
+    assert service.config.smart_search_api_key == "sk-config-secret"
+    assert service.config.smart_search_model == "config-model"
+
+
+def test_environment_overrides_config_file(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    service.config_set("SMART_SEARCH_API_URL", "https://config.example.com/v1")
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://env.example.com/v1")
+
+    assert service.config.smart_search_api_url == "https://env.example.com/v1"
+    assert service.config.get_config_source("SMART_SEARCH_API_URL") == "environment"
+    assert service.config.get_config_source("SMART_SEARCH_API_KEY") == "default"
+
+
+def test_config_sources_report_config_file(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    service.config_set("SMART_SEARCH_API_KEY", "sk-config-secret")
+
+    sources = service.config.get_config_sources()
+
+    assert sources["SMART_SEARCH_API_KEY"] == "config_file"
+    assert sources["SMART_SEARCH_API_URL"] == "default"
 
 
 @pytest.mark.asyncio

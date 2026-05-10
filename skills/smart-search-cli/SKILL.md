@@ -10,15 +10,16 @@ Use the local `smart-search` command as the default execution layer for web rese
 ## Default workflow
 
 1. Run `smart-search doctor --format json` when configuration or availability is uncertain.
-2. If `doctor` returns `ok: true`, use only `smart-search` CLI subcommands for web research. Do not call Codex native web search in the same task.
-3. Use `smart-search search` for realtime, broad, community, or multi-source synthesis.
-4. Use `smart-search exa-search` for official documentation, API references, papers, and low-noise source discovery.
-5. Use `smart-search exa-similar` when the user gives a representative URL and wants related pages or neighboring sources.
-6. Use `smart-search fetch` when the user gives a URL or a claim depends on page content.
-7. Use `smart-search map` when a documentation site or domain structure matters.
-8. Use `smart-search model current` or `model set` only for explicit model checks or changes.
-9. For complex current-news work, split the task: run targeted `exa-search` queries, fetch key URLs, then optionally run a short `search` synthesis. Avoid one long all-purpose query.
-10. Preserve command lines and source URLs in your answer. Cite URLs from `sources` or result records.
+2. If `doctor` reports missing configuration, use `smart-search setup` or `smart-search config set KEY VALUE` when the user provides keys. Do not ask users to edit global environment variables by default.
+3. If `doctor` returns `ok: true`, use only `smart-search` CLI subcommands for web research. Do not call Codex native web search in the same task.
+4. Use `smart-search search` for realtime, broad, community, or multi-source synthesis.
+5. Use `smart-search exa-search` for official documentation, API references, papers, and low-noise source discovery.
+6. Use `smart-search exa-similar` when the user gives a representative URL and wants related pages or neighboring sources.
+7. Use `smart-search fetch` when the user gives a URL or a claim depends on page content.
+8. Use `smart-search map` when a documentation site or domain structure matters.
+9. Use `smart-search model current` or `model set` only for explicit model checks or changes.
+10. For complex current-news work, split the task: run targeted `exa-search` queries, fetch key URLs, then optionally run a short `search` synthesis. Avoid one long all-purpose query.
+11. Preserve command lines and source URLs in your answer. Cite URLs from `sources` or result records.
 
 ## Provider Routing
 
@@ -47,9 +48,10 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 
 - Expect `smart-search` to resolve from the user's PATH.
 - This bundled skill is maintained with the `smartsearch` repository.
-- Prefer a private shell/env loader for API keys, outside the repository.
+- Prefer the CLI's local config file managed by `smart-search setup` / `smart-search config`.
+- Environment variables remain supported for CI and advanced users, and override the local config file.
 - Do not ask users to set Windows global API-key environment variables by default.
-- If keys are changed in the private env file, rerun the CLI; no Codex restart is needed.
+- If keys are changed with `smart-search config set`, rerun the CLI; no Codex restart is needed.
 - If PATH is changed, a new terminal or Codex restart may be needed.
 
 ## Command Patterns
@@ -61,6 +63,10 @@ smart-search exa-search "query" --num-results 5 --search-type neural --include-t
 smart-search exa-similar "https://example.com/article" --num-results 5 --format json
 smart-search fetch "https://example.com" --format markdown --output page.md
 smart-search map "https://docs.example.com" --instructions "Find API reference pages" --max-depth 1 --max-breadth 20 --limit 50 --format json
+smart-search setup
+smart-search config path --format json
+smart-search config list --format json
+smart-search config set EXA_API_KEY "key" --format json
 smart-search model current --format json
 smart-search model set "model-id" --format json
 smart-search doctor --format json
@@ -74,7 +80,8 @@ smart-search regression
 - Keep `--extra-sources` small (`1` to `3`) unless the user asks for broad coverage. Large values are slower and can add noise.
 - Prefer `exa-search --include-domains` for official documentation when likely domains are known.
 - Do not expose API keys. Treat `doctor` output as safe only because it is expected to mask secrets.
-- If `doctor` or a command fails, report the failure and recovery steps. Do not silently fall back to another web-search route.
+- In this CLI-first workflow, native `web_search` is disabled unless the user explicitly configures another approved route.
+- If `doctor` or a command fails, report the failure and recovery steps; do not silently fall back to another web-search route.
 - If the user explicitly asks to bypass smart-search, state that another approved web-search route must be configured first.
 - Do not use legacy MCP tool names in prompts, notes, or generated instructions for this workflow.
 - Treat key rotation as a hard safety gate when previous key values were pasted into chat or logs.

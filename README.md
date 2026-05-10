@@ -40,7 +40,7 @@ smart-search
 - Tavily：适合网页正文提取、站点 map 和补充搜索来源。
 - Firecrawl：作为网页抓取或搜索补充来源。
 
-这些服务都通过环境变量配置。仓库里不会保存你的真实 key。
+这些服务推荐通过 `smart-search setup` 保存到当前用户的本机配置文件。仓库里不会保存你的真实 key；环境变量仍可用于 CI 或高级用户覆盖本机配置。
 
 ### 每个命令会用到哪些服务
 
@@ -103,7 +103,38 @@ python -m pip install -e ".[dev]"
 
 ### 配置
 
-最少需要配置主搜索接口：
+普通用户推荐使用内置配置向导，不需要手动设置全局环境变量：
+
+```powershell
+smart-search setup
+smart-search doctor --format json
+```
+
+`setup` 会把配置保存到当前用户的本机配置文件。你可以查看配置文件路径：
+
+```powershell
+smart-search config path --format json
+```
+
+也可以用非交互方式写入配置，适合脚本或安装说明：
+
+```powershell
+smart-search setup --non-interactive `
+  --api-url "https://your-api.example.com/v1" `
+  --api-key "your-api-key" `
+  --model "your-model-name" `
+  --exa-key "your-exa-key" `
+  --tavily-key "your-tavily-key" `
+  --firecrawl-key "your-firecrawl-key"
+```
+
+查看已保存配置时会自动遮住 key：
+
+```powershell
+smart-search config list --format json
+```
+
+高级用户和 CI 仍然可以使用环境变量。环境变量优先级高于本机配置文件。最少需要配置主搜索接口：
 
 ```powershell
 $env:SMART_SEARCH_API_URL = "https://your-api.example.com/v1"
@@ -266,9 +297,9 @@ smart-search exa-search "Python packaging guide" --format json --output result.j
 
 如果 `smart-search doctor --format json` 显示 `config_error`：
 
-1. 检查 `SMART_SEARCH_API_URL` 是否设置。
-2. 检查 `SMART_SEARCH_API_KEY` 是否设置。
-3. 检查当前终端是不是新开的，旧终端可能没有加载最新环境变量。
+1. 先运行 `smart-search setup`，按提示填写主接口地址和 key。
+2. 再运行 `smart-search config list --format json`，确认 `SMART_SEARCH_API_URL` 和 `SMART_SEARCH_API_KEY` 已保存，key 会被自动遮住。
+3. 最后运行 `smart-search doctor --format json` 重新检查连通性。高级用户如果使用环境变量，可看 `config_sources` 判断当前值来自 `environment` 还是 `config_file`。
 
 如果 `search` 很慢：
 
@@ -394,7 +425,38 @@ python -m pip install -e ".[dev]"
 
 ### Configuration
 
-At minimum, configure the primary search endpoint:
+Most users should use the built-in setup wizard instead of manually editing global environment variables:
+
+```powershell
+smart-search setup
+smart-search doctor --format json
+```
+
+`setup` saves values to the current user's local Smart Search config file. To inspect the path:
+
+```powershell
+smart-search config path --format json
+```
+
+For scripts or copy-paste setup instructions, use non-interactive mode:
+
+```powershell
+smart-search setup --non-interactive `
+  --api-url "https://your-api.example.com/v1" `
+  --api-key "your-api-key" `
+  --model "your-model-name" `
+  --exa-key "your-exa-key" `
+  --tavily-key "your-tavily-key" `
+  --firecrawl-key "your-firecrawl-key"
+```
+
+Saved keys are masked when listed:
+
+```powershell
+smart-search config list --format json
+```
+
+Advanced users and CI can still use environment variables. Environment variables override the local config file. At minimum, configure the primary search endpoint:
 
 ```powershell
 $env:SMART_SEARCH_API_URL = "https://your-api.example.com/v1"
@@ -557,9 +619,9 @@ smart-search exa-search "Python packaging guide" --format json --output result.j
 
 If `smart-search doctor --format json` returns `config_error`:
 
-1. Check `SMART_SEARCH_API_URL`.
-2. Check `SMART_SEARCH_API_KEY`.
-3. Open a new terminal if you recently changed environment variables.
+1. Run `smart-search setup` and enter the primary endpoint URL and key.
+2. Run `smart-search config list --format json` and confirm `SMART_SEARCH_API_URL` and `SMART_SEARCH_API_KEY` are saved. Keys are masked automatically.
+3. Run `smart-search doctor --format json` again. Advanced users who rely on environment variables can inspect `config_sources` to see whether a value came from `environment` or `config_file`.
 
 If `search` is slow:
 

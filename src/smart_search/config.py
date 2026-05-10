@@ -1,15 +1,38 @@
-import os
 import json
+import os
 from pathlib import Path
 
 class Config:
     _instance = None
     _SETUP_COMMAND = (
-        "Set SMART_SEARCH_API_URL and SMART_SEARCH_API_KEY in the environment, then run "
-        "`smart-search doctor --format json`. Optional: set EXA_API_KEY, "
-        "TAVILY_API_KEY, and FIRECRAWL_API_KEY for additional providers."
+        "Run `smart-search setup`, or set SMART_SEARCH_API_URL and "
+        "SMART_SEARCH_API_KEY in the environment, then run "
+        "`smart-search doctor --format json`."
     )
     _DEFAULT_MODEL = "grok-4-fast"
+    _CONFIG_KEYS = {
+        "SMART_SEARCH_API_URL",
+        "SMART_SEARCH_API_KEY",
+        "SMART_SEARCH_MODEL",
+        "EXA_API_KEY",
+        "EXA_BASE_URL",
+        "EXA_TIMEOUT_SECONDS",
+        "TAVILY_API_KEY",
+        "TAVILY_API_URL",
+        "TAVILY_ENABLED",
+        "FIRECRAWL_API_KEY",
+        "FIRECRAWL_API_URL",
+        "SMART_SEARCH_DEBUG",
+        "SMART_SEARCH_LOG_LEVEL",
+        "SMART_SEARCH_LOG_DIR",
+        "SMART_SEARCH_RETRY_MAX_ATTEMPTS",
+        "SMART_SEARCH_RETRY_MULTIPLIER",
+        "SMART_SEARCH_RETRY_MAX_WAIT",
+        "SMART_SEARCH_OUTPUT_CLEANUP",
+        "SMART_SEARCH_LOG_TO_FILE",
+        "SSL_VERIFY",
+    }
+    _LEGACY_CONFIG_KEYS = {"model": "SMART_SEARCH_MODEL"}
 
     def __new__(cls):
         if cls._instance is None:
@@ -35,7 +58,8 @@ class Config:
             return {}
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
         except (json.JSONDecodeError, IOError):
             return {}
 
@@ -46,69 +70,137 @@ class Config:
         except IOError as e:
             raise ValueError(f"无法保存配置文件: {str(e)}")
 
+    def _get_config_value(self, key: str, default: str | None = None) -> str | None:
+        env_value = os.getenv(key)
+        if env_value is not None:
+            return env_value
+
+        data = self._load_config_file()
+        value = data.get(key)
+        if value is None:
+            legacy_key = next((old for old, new in self._LEGACY_CONFIG_KEYS.items() if new == key), None)
+            if legacy_key:
+                value = data.get(legacy_key)
+        if value is None:
+            return default
+        return str(value)
+
+    def get_saved_config(self, masked: bool = True) -> dict:
+        data = self._load_config_file()
+        normalized: dict[str, str] = {}
+        for old_key, new_key in self._LEGACY_CONFIG_KEYS.items():
+            if old_key in data and new_key not in data:
+                normalized[new_key] = str(data[old_key])
+        for key, value in data.items():
+            if key in self._CONFIG_KEYS and value is not None:
+                normalized[key] = str(value)
+        if not masked:
+            return normalized
+        return {key: self._mask_if_secret(key, value) for key, value in normalized.items()}
+
+    def get_config_source(self, key: str) -> str:
+        if os.getenv(key) is not None:
+            return "environment"
+        data = self._load_config_file()
+        if key in data:
+            return "config_file"
+        legacy_key = next((old for old, new in self._LEGACY_CONFIG_KEYS.items() if new == key), None)
+        if legacy_key and legacy_key in data:
+            return "config_file"
+        return "default"
+
+    def get_config_sources(self) -> dict[str, str]:
+        return {key: self.get_config_source(key) for key in sorted(self._CONFIG_KEYS)}
+
+    def set_config_value(self, key: str, value: str) -> None:
+        key = key.strip().upper()
+        if key not in self._CONFIG_KEYS:
+            raise ValueError(f"Unsupported config key: {key}")
+        config_data = self._load_config_file()
+        config_data[key] = value
+        self._save_config_file(config_data)
+        if key == "SMART_SEARCH_MODEL":
+            self._cached_model = None
+
+    def unset_config_value(self, key: str) -> None:
+        key = key.strip().upper()
+        if key not in self._CONFIG_KEYS:
+            raise ValueError(f"Unsupported config key: {key}")
+        config_data = self._load_config_file()
+        config_data.pop(key, None)
+        for old_key, new_key in self._LEGACY_CONFIG_KEYS.items():
+            if new_key == key:
+                config_data.pop(old_key, None)
+        self._save_config_file(config_data)
+        if key == "SMART_SEARCH_MODEL":
+            self._cached_model = None
+
+    def config_path_info(self) -> dict:
+        return {"ok": True, "config_file": str(self.config_file), "exists": self.config_file.exists()}
+
     @property
     def debug_enabled(self) -> bool:
-        return os.getenv("SMART_SEARCH_DEBUG", "false").lower() in ("true", "1", "yes")
+        return (self._get_config_value("SMART_SEARCH_DEBUG", "false") or "false").lower() in ("true", "1", "yes")
 
     @property
     def retry_max_attempts(self) -> int:
-        return int(os.getenv("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "3"))
+        return int(self._get_config_value("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "3") or "3")
 
     @property
     def retry_multiplier(self) -> float:
-        return float(os.getenv("SMART_SEARCH_RETRY_MULTIPLIER", "1"))
+        return float(self._get_config_value("SMART_SEARCH_RETRY_MULTIPLIER", "1") or "1")
 
     @property
     def retry_max_wait(self) -> int:
-        return int(os.getenv("SMART_SEARCH_RETRY_MAX_WAIT", "10"))
+        return int(self._get_config_value("SMART_SEARCH_RETRY_MAX_WAIT", "10") or "10")
 
     @property
     def smart_search_api_url(self) -> str:
-        url = os.getenv("SMART_SEARCH_API_URL")
+        url = self._get_config_value("SMART_SEARCH_API_URL")
         if not url:
             raise ValueError(
                 f"OpenAI-compatible API URL 未配置！\n"
-                f"请配置 CLI 环境变量：\n{self._SETUP_COMMAND}"
+                f"请配置 Smart Search：\n{self._SETUP_COMMAND}"
             )
         return url
 
     @property
     def smart_search_api_key(self) -> str:
-        key = os.getenv("SMART_SEARCH_API_KEY")
+        key = self._get_config_value("SMART_SEARCH_API_KEY")
         if not key:
             raise ValueError(
                 f"OpenAI-compatible API Key 未配置！\n"
-                f"请配置 CLI 环境变量：\n{self._SETUP_COMMAND}"
+                f"请配置 Smart Search：\n{self._SETUP_COMMAND}"
             )
         return key
 
     @property
     def tavily_enabled(self) -> bool:
-        return os.getenv("TAVILY_ENABLED", "true").lower() in ("true", "1", "yes")
+        return (self._get_config_value("TAVILY_ENABLED", "true") or "true").lower() in ("true", "1", "yes")
 
     @property
     def tavily_api_url(self) -> str:
-        return os.getenv("TAVILY_API_URL", "https://api.tavily.com")
+        return self._get_config_value("TAVILY_API_URL", "https://api.tavily.com") or "https://api.tavily.com"
 
     @property
     def tavily_api_key(self) -> str | None:
-        return os.getenv("TAVILY_API_KEY")
+        return self._get_config_value("TAVILY_API_KEY")
 
     @property
     def firecrawl_api_url(self) -> str:
-        return os.getenv("FIRECRAWL_API_URL", "https://api.firecrawl.dev/v2")
+        return self._get_config_value("FIRECRAWL_API_URL", "https://api.firecrawl.dev/v2") or "https://api.firecrawl.dev/v2"
 
     @property
     def firecrawl_api_key(self) -> str | None:
-        return os.getenv("FIRECRAWL_API_KEY")
+        return self._get_config_value("FIRECRAWL_API_KEY")
 
     @property
     def log_level(self) -> str:
-        return os.getenv("SMART_SEARCH_LOG_LEVEL", "INFO").upper()
+        return (self._get_config_value("SMART_SEARCH_LOG_LEVEL", "INFO") or "INFO").upper()
 
     @property
     def log_dir(self) -> Path:
-        log_dir_str = os.getenv("SMART_SEARCH_LOG_DIR", "logs")
+        log_dir_str = self._get_config_value("SMART_SEARCH_LOG_DIR", "logs") or "logs"
         log_dir = Path(log_dir_str)
         if log_dir.is_absolute():
             return log_dir
@@ -147,16 +239,14 @@ class Config:
 
         model = (
             os.getenv("SMART_SEARCH_MODEL")
-            or self._load_config_file().get("model")
+            or self._get_config_value("SMART_SEARCH_MODEL")
             or self._DEFAULT_MODEL
         )
         self._cached_model = self._apply_model_suffix(model)
         return self._cached_model
 
     def set_model(self, model: str) -> None:
-        config_data = self._load_config_file()
-        config_data["model"] = model
-        self._save_config_file(config_data)
+        self.set_config_value("SMART_SEARCH_MODEL", model)
         self._cached_model = self._apply_model_suffix(model)
 
     @staticmethod
@@ -165,29 +255,35 @@ class Config:
             return "***"
         return f"{key[:4]}{'*' * (len(key) - 8)}{key[-4:]}"
 
+    @classmethod
+    def _mask_if_secret(cls, key: str, value: str) -> str:
+        if "KEY" in key or "TOKEN" in key or "SECRET" in key:
+            return cls._mask_api_key(value)
+        return value
+
     @property
     def output_cleanup_enabled(self) -> bool:
-        return os.getenv("SMART_SEARCH_OUTPUT_CLEANUP", "true").lower() in ("true", "1", "yes")
+        return (self._get_config_value("SMART_SEARCH_OUTPUT_CLEANUP", "true") or "true").lower() in ("true", "1", "yes")
 
     @property
     def log_to_file_enabled(self) -> bool:
-        return os.getenv("SMART_SEARCH_LOG_TO_FILE", "false").lower() in ("true", "1", "yes")
+        return (self._get_config_value("SMART_SEARCH_LOG_TO_FILE", "false") or "false").lower() in ("true", "1", "yes")
 
     @property
     def ssl_verify_enabled(self) -> bool:
-        return os.getenv("SSL_VERIFY", "true").lower() not in ("false", "0", "no")
+        return (self._get_config_value("SSL_VERIFY", "true") or "true").lower() not in ("false", "0", "no")
 
     @property
     def exa_api_key(self) -> str | None:
-        return os.getenv("EXA_API_KEY")
+        return self._get_config_value("EXA_API_KEY")
 
     @property
     def exa_base_url(self) -> str:
-        return os.getenv("EXA_BASE_URL", "https://api.exa.ai")
+        return self._get_config_value("EXA_BASE_URL", "https://api.exa.ai") or "https://api.exa.ai"
 
     @property
     def exa_timeout(self) -> float:
-        return float(os.getenv("EXA_TIMEOUT_SECONDS", "30"))
+        return float(self._get_config_value("EXA_TIMEOUT_SECONDS", "30") or "30")
 
     def get_config_info(self) -> dict:
         try:
@@ -221,6 +317,8 @@ class Config:
             "EXA_API_KEY": self._mask_api_key(self.exa_api_key) if self.exa_api_key else "未配置",
             "EXA_BASE_URL": self.exa_base_url,
             "EXA_TIMEOUT_SECONDS": self.exa_timeout,
+            "config_file": str(self.config_file),
+            "config_sources": self.get_config_sources(),
             "config_status": config_status
         }
 

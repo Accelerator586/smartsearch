@@ -5,7 +5,8 @@
 - `smart-search` is the primary CLI.
 - `smart-search` should resolve from the user's PATH.
 - This bundled skill is maintained with the `smartsearch` repository.
-- Private API keys should be loaded by the user's shell, profile, or local wrapper outside the repository.
+- Private API keys should be saved with `smart-search setup` or `smart-search config set`.
+- Environment variables remain supported for CI and advanced users, and override the local config file.
 - Do not depend on MCP inline `env` values or committed API-key environment variables for CLI use.
 
 ## Commands
@@ -16,6 +17,11 @@
 - `smart-search exa-similar URL [--num-results N] [--format json|markdown] [--output PATH]`
 - `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown] [--output PATH]`
 - `smart-search doctor [--format json|markdown] [--output PATH]`
+- `smart-search setup [--non-interactive] [--api-url URL] [--api-key KEY] [--model ID] [--exa-key KEY] [--tavily-key KEY] [--firecrawl-key KEY] [--format json|markdown] [--output PATH]`
+- `smart-search config path [--format json|markdown] [--output PATH]`
+- `smart-search config list [--format json|markdown] [--output PATH]`
+- `smart-search config set KEY VALUE [--format json|markdown] [--output PATH]`
+- `smart-search config unset KEY [--format json|markdown] [--output PATH]`
 - `smart-search model set MODEL [--format json] [--output PATH]`
 - `smart-search model current [--format json] [--output PATH]`
 - `smart-search regression`
@@ -32,7 +38,9 @@ Exa similar output includes `ok`, `url`, `results`, `total`, and `elapsed_ms` wh
 
 Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `elapsed_ms` when successful.
 
-Diagnostic output masks keys and includes connection test objects for the primary OpenAI-compatible endpoint, Exa, Tavily, and Firecrawl. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
+Diagnostic output masks keys, reports `config_file` / `config_sources`, and includes connection test objects for the primary OpenAI-compatible endpoint, Exa, Tavily, and Firecrawl. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
+
+Setup and config output should include `ok` and `config_file`. Saved API keys must be masked in command output.
 
 Search timeout output uses `ok=false`, `error_type=network_error`, includes the timeout seconds in `error`, keeps `query`, `content`, `sources`, and `sources_count`, and exits with code `4`.
 
@@ -43,6 +51,8 @@ Search timeout output uses `ok=false`, `error_type=network_error`, includes the 
 - `fetch` tries Tavily first, then Firecrawl as fallback when Tavily returns no content.
 - `map` uses Tavily only.
 - `exa-search` and `exa-similar` use Exa only.
+- Runtime config priority is environment variables first, then local config file, then defaults.
+- `setup` and `config` read/write the local Smart Search config file and do not call providers.
 - `model current` and `model set` read/write the local Smart Search config file and do not call providers.
 
 ## Routing Heuristics

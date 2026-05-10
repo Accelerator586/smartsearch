@@ -23,6 +23,12 @@ def test_each_subcommand_help_exits_successfully(capsys):
         ["exa-search", "--help"],
         ["exa-similar", "--help"],
         ["doctor", "--help"],
+        ["setup", "--help"],
+        ["config", "--help"],
+        ["config", "path", "--help"],
+        ["config", "list", "--help"],
+        ["config", "set", "--help"],
+        ["config", "unset", "--help"],
         ["model", "--help"],
         ["model", "set", "--help"],
         ["model", "current", "--help"],
@@ -180,6 +186,109 @@ def test_model_set_uses_service(monkeypatch, capsys):
 
     assert code == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["current_model"] == "grok-4-fast"
+
+
+def test_config_set_masks_value(monkeypatch, capsys):
+    def fake_config_set(key, value):
+        return {"ok": True, "key": key, "value": "sk-t********cret", "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+
+    code = cli.main(["config", "set", "SMART_SEARCH_API_KEY", "sk-test-secret"])
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert "sk-test-secret" not in out
+    assert json.loads(out)["value"] == "sk-t********cret"
+
+
+def test_config_list_does_not_request_secrets(monkeypatch, capsys):
+    captured = {}
+
+    def fake_config_list(show_secrets=False):
+        captured["show_secrets"] = show_secrets
+        return {"ok": True, "values": {"SMART_SEARCH_API_KEY": "sk-t********cret"}}
+
+    monkeypatch.setattr(cli.service, "config_list", fake_config_list)
+
+    code = cli.main(["config", "list"])
+
+    assert code == cli.EXIT_OK
+    assert captured["show_secrets"] is False
+    assert json.loads(capsys.readouterr().out)["values"]["SMART_SEARCH_API_KEY"].endswith("cret")
+
+
+def test_setup_non_interactive_saves_values(monkeypatch, capsys):
+    saved = {}
+
+    def fake_config_set(key, value):
+        saved[key] = value
+        return {"ok": True, "key": key, "value": "***", "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main([
+        "setup",
+        "--non-interactive",
+        "--api-url",
+        "https://api.example.com/v1",
+        "--api-key",
+        "sk-test-secret",
+        "--model",
+        "test-model",
+    ])
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert saved["SMART_SEARCH_API_URL"] == "https://api.example.com/v1"
+    assert saved["SMART_SEARCH_API_KEY"] == "sk-test-secret"
+    assert saved["SMART_SEARCH_MODEL"] == "test-model"
+    assert "sk-test-secret" not in out
+
+
+def test_setup_interactive_does_not_print_current_secret(monkeypatch, capsys):
+    prompts = []
+
+    def fake_config_set(key, value):
+        return {"ok": True, "key": key, "value": "***", "config_file": "C:/tmp/config.json"}
+
+    def fake_input(prompt):
+        prompts.append(prompt)
+        return ""
+
+    def fake_getpass(prompt):
+        prompts.append(prompt)
+        return ""
+
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+    monkeypatch.setattr(
+        cli.service,
+        "config_list",
+        lambda show_secrets=False: {
+            "ok": True,
+            "values": {
+                "SMART_SEARCH_API_URL": "https://api.example.com/v1",
+                "SMART_SEARCH_API_KEY": "sk-test-secret",
+                "SMART_SEARCH_MODEL": "test-model",
+                "EXA_API_KEY": "exa-test-secret",
+            },
+        },
+    )
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr(cli.getpass, "getpass", fake_getpass)
+
+    code = cli.main(["setup"])
+    captured = capsys.readouterr()
+    prompt_text = "\n".join(prompts)
+
+    assert code == cli.EXIT_OK
+    assert "sk-test-secret" not in captured.out
+    assert "sk-test-secret" not in captured.err
+    assert "sk-test-secret" not in prompt_text
+    assert "exa-test-secret" not in prompt_text
+    assert "Primary API key [configured]" in prompt_text
 
 
 def test_regression_invokes_pytest(monkeypatch):

@@ -212,7 +212,11 @@ async def call_tavily_map(
 ) -> dict[str, Any]:
     api_key = config.tavily_api_key
     if not api_key:
-        return {"ok": False, "error_type": "config_error", "error": "TAVILY_API_KEY 未配置，请设置环境变量 TAVILY_API_KEY"}
+        return {
+            "ok": False,
+            "error_type": "config_error",
+            "error": "TAVILY_API_KEY 未配置。请运行 `smart-search setup`，或使用 `smart-search config set TAVILY_API_KEY <key>`。",
+        }
 
     endpoint = f"{config.tavily_api_url.rstrip('/')}/map"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -377,7 +381,11 @@ async def exa_search(
 ) -> dict[str, Any]:
     api_key = config.exa_api_key
     if not api_key:
-        return {"ok": False, "error_type": "config_error", "error": "EXA_API_KEY 未配置。请设置环境变量 EXA_API_KEY。"}
+        return {
+            "ok": False,
+            "error_type": "config_error",
+            "error": "EXA_API_KEY 未配置。请运行 `smart-search setup`，或使用 `smart-search config set EXA_API_KEY <key>`。",
+        }
 
     provider = ExaSearchProvider(config.exa_base_url, api_key, config.exa_timeout)
     include_domain_list = [d.strip() for d in include_domains.split(",") if d.strip()] if include_domains else None
@@ -406,7 +414,11 @@ async def exa_search(
 async def exa_find_similar(url: str, num_results: int = 5) -> dict[str, Any]:
     api_key = config.exa_api_key
     if not api_key:
-        return {"ok": False, "error_type": "config_error", "error": "EXA_API_KEY 未配置。请设置环境变量 EXA_API_KEY。"}
+        return {
+            "ok": False,
+            "error_type": "config_error",
+            "error": "EXA_API_KEY 未配置。请运行 `smart-search setup`，或使用 `smart-search config set EXA_API_KEY <key>`。",
+        }
 
     provider = ExaSearchProvider(config.exa_base_url, api_key, config.exa_timeout)
     raw = await provider.find_similar(url=url, num_results=num_results)
@@ -534,6 +546,34 @@ def set_model(model: str) -> dict[str, Any]:
     previous = config.smart_search_model
     config.set_model(model)
     return {"ok": True, "previous_model": previous, "current_model": config.smart_search_model, "config_file": str(config.config_file)}
+
+
+def config_path() -> dict[str, Any]:
+    return config.config_path_info()
+
+
+def config_list(show_secrets: bool = False) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "config_file": str(config.config_file),
+        "values": config.get_saved_config(masked=not show_secrets),
+    }
+
+
+def config_set(key: str, value: str) -> dict[str, Any]:
+    config.set_config_value(key, value)
+    saved = config.get_saved_config(masked=True)
+    return {
+        "ok": True,
+        "config_file": str(config.config_file),
+        "key": key.strip().upper(),
+        "value": saved.get(key.strip().upper(), ""),
+    }
+
+
+def config_unset(key: str) -> dict[str, Any]:
+    config.unset_config_value(key)
+    return {"ok": True, "config_file": str(config.config_file), "key": key.strip().upper()}
 
 
 def write_output(path: str | Path, content: str) -> None:
