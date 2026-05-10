@@ -1,5 +1,13 @@
 # smart-search
 
+[中文](#中文) | [English](#english)
+
+CLI-first web research for AI agents and command-line users. Use one command to run web search, fetch page content, map a site, inspect configuration, and save reproducible JSON or Markdown evidence.
+
+![Star History Chart](https://api.star-history.com/svg?repos=konbakuyomu/smartsearch&type=Date)
+
+## 中文
+
 `smart-search` 是一个给 AI 助手和命令行用户使用的网页研究工具。你可以把它理解成一个“统一搜索入口”：用同一个命令完成联网搜索、打开网页、读取站点目录、检查配置，并把结果稳定地输出成 JSON 或 Markdown。
 
 这个仓库只提供 CLI，也就是命令行工具。日常使用只需要记住一个命令：
@@ -8,14 +16,14 @@
 smart-search
 ```
 
-## 适合什么时候用
+### 适合什么时候用
 
 - 你想让 AI 助手查当前网页信息，但希望留下可复现的命令和来源。
 - 你想抓取一个 URL 的正文，并保存成 Markdown。
 - 你想查官方文档、API 文档、论文、产品页面，并拿到低噪声来源列表。
 - 你想在开始搜索前确认 API Key、模型和各个 provider 是否配置正确。
 
-## 它由哪些服务组成
+### 它由哪些服务组成
 
 - 主搜索接口：一个 OpenAI-compatible Chat Completions 接口，用来回答综合搜索问题。
 - Exa：适合查官方文档、API、论文和高质量网页。
@@ -24,7 +32,7 @@ smart-search
 
 这些服务都通过环境变量配置。仓库里不会保存你的真实 key。
 
-## 每个命令会用到哪些服务
+### 每个命令会用到哪些服务
 
 | 命令 | 主要用途 | 会用到的服务 |
 | --- | --- | --- |
@@ -44,7 +52,7 @@ smart-search
 - 如果只配置了 Firecrawl，就只用 Firecrawl 补来源。
 - 如果不传 `--extra-sources`，`search` 只调用主搜索接口，不额外调用 Tavily / Firecrawl。
 
-## 安装
+### 安装
 
 先进入仓库目录：
 
@@ -65,7 +73,7 @@ uv pip install -e ".[dev]"
 python -m pip install -e ".[dev]"
 ```
 
-## 配置
+### 配置
 
 最少需要配置主搜索接口：
 
@@ -108,7 +116,7 @@ smart-search doctor --format json
 
 `doctor` 会遮住 key，只显示配置是否完整和各服务连通状态。
 
-## 常用命令
+### 常用命令
 
 查配置：
 
@@ -196,7 +204,7 @@ smart-search model set "your-model-name" --format json
 smart-search regression
 ```
 
-## 输出格式怎么选
+### 输出格式怎么选
 
 默认用 JSON，适合 AI 助手继续解析：
 
@@ -216,7 +224,7 @@ smart-search fetch "https://example.com" --format markdown
 smart-search exa-search "Python packaging guide" --format json --output result.json
 ```
 
-## 退出码
+### 退出码
 
 | 退出码 | 含义 |
 | ---: | --- |
@@ -226,7 +234,7 @@ smart-search exa-search "Python packaging guide" --format json --output result.j
 | `4` | 网络或上游服务错误 |
 | `5` | 运行时错误或解析错误 |
 
-## 新手排障
+### 新手排障
 
 如果 `smart-search doctor --format json` 显示 `config_error`：
 
@@ -247,7 +255,7 @@ smart-search --help
 smart-search regression
 ```
 
-## 开发验证
+### 开发验证
 
 运行全部测试：
 
@@ -268,3 +276,274 @@ rg -n "SMART_SEARCH_API_KEY|EXA_API_KEY|TAVILY_API_KEY|FIRECRAWL_API_KEY" .
 ```
 
 README 里的 `your-api-key`、`your-exa-key` 只是占位符，不要替换成真实密钥后提交。
+
+## English
+
+`smart-search` is a CLI-first web research tool for AI agents and terminal users. Think of it as one stable command for searching the web, fetching page content, mapping documentation sites, checking configuration, and saving evidence as JSON or Markdown.
+
+This repository ships only a CLI. The main command is:
+
+```powershell
+smart-search
+```
+
+### When To Use It
+
+- You want an AI agent to use current web information with reproducible command evidence.
+- You want to fetch a URL and save the page content as Markdown.
+- You want low-noise sources for official docs, API references, papers, or product pages.
+- You want to verify API keys, model settings, and provider connectivity before research.
+
+### Providers
+
+- Primary search endpoint: an OpenAI-compatible Chat Completions endpoint for broad research answers.
+- Exa: good for official docs, APIs, papers, and high-quality pages.
+- Tavily: used for page extraction, site maps, and extra search sources.
+- Firecrawl: used as an extra search source and a fetch fallback.
+
+All providers are configured through environment variables. Do not commit real keys to this repository.
+
+### Provider Usage By Command
+
+| Command | Purpose | Providers |
+| --- | --- | --- |
+| `search` | Broad search and answer generation | Primary endpoint; with `--extra-sources`, also Tavily / Firecrawl |
+| `exa-search` | Official docs, APIs, papers, product pages | Exa |
+| `exa-similar` | Find pages similar to a URL | Exa |
+| `fetch` | Fetch page content | Tavily first; Firecrawl fallback if Tavily returns no content |
+| `map` | Map a site structure | Tavily |
+| `doctor` | Check config and connectivity | Primary endpoint, Exa, Tavily; Firecrawl currently checks whether a key is configured |
+| `model` | Read or change the default model name | Local config file |
+| `regression` | Run offline regression tests | Local pytest, no real provider calls |
+
+`search --extra-sources N` works like this:
+
+- If both Tavily and Firecrawl are configured, extra sources are split between them. Tavily gets about 60%, Firecrawl gets the rest.
+- If only Tavily is configured, only Tavily is used for extra sources.
+- If only Firecrawl is configured, only Firecrawl is used for extra sources.
+- If `--extra-sources` is omitted, `search` only calls the primary endpoint.
+
+### Installation
+
+Enter the repository:
+
+```powershell
+cd D:\Dev\20_Software\21_Mine\smartsearch
+```
+
+Create a virtual environment and install:
+
+```powershell
+uv venv
+uv pip install -e ".[dev]"
+```
+
+Without `uv`, use pip:
+
+```powershell
+python -m pip install -e ".[dev]"
+```
+
+### Configuration
+
+At minimum, configure the primary search endpoint:
+
+```powershell
+$env:SMART_SEARCH_API_URL = "https://your-api.example.com/v1"
+$env:SMART_SEARCH_API_KEY = "your-api-key"
+$env:SMART_SEARCH_MODEL = "your-model-name"
+```
+
+Optional providers:
+
+```powershell
+$env:EXA_API_KEY = "your-exa-key"
+$env:TAVILY_API_KEY = "your-tavily-key"
+$env:FIRECRAWL_API_KEY = "your-firecrawl-key"
+```
+
+Common settings:
+
+| Variable | Purpose |
+| --- | --- |
+| `SMART_SEARCH_API_URL` | Primary OpenAI-compatible Chat Completions endpoint |
+| `SMART_SEARCH_API_KEY` | Primary endpoint API key |
+| `SMART_SEARCH_MODEL` | Default model name |
+| `SMART_SEARCH_DEBUG` | Enable debug logs |
+| `SMART_SEARCH_LOG_LEVEL` | Log level, defaults to `INFO` |
+| `SMART_SEARCH_LOG_DIR` | Log directory |
+| `SMART_SEARCH_OUTPUT_CLEANUP` | Clean extra reasoning/refusal prefixes from model output |
+| `SMART_SEARCH_LOG_TO_FILE` | Write logs to a file |
+| `SSL_VERIFY` | Verify TLS certificates, enabled by default |
+| `EXA_API_KEY` | Exa key |
+| `TAVILY_API_KEY` | Tavily key |
+| `FIRECRAWL_API_KEY` | Firecrawl key |
+
+Check configuration:
+
+```powershell
+smart-search doctor --format json
+```
+
+`doctor` masks keys and reports config plus provider status.
+
+### Common Commands
+
+Check configuration:
+
+```powershell
+smart-search doctor --format json
+```
+
+Broad search:
+
+```powershell
+smart-search search "latest OpenAI Responses API changes" --extra-sources 3 --timeout 90 --format json
+```
+
+Useful options:
+
+- `--platform NAME`: ask the primary endpoint to focus on a platform or source.
+- `--model ID`: use a model for this run without changing the default.
+- `--extra-sources N`: fetch N extra sources from Tavily / Firecrawl.
+- `--timeout SECONDS`: hard timeout for the search.
+- `--format json|markdown`: output format.
+- `--output PATH`: also write the rendered output to a file.
+
+Search docs or APIs:
+
+```powershell
+smart-search exa-search "OpenAI Responses API documentation" --num-results 5 --include-highlights --format json
+```
+
+Useful options:
+
+- `--num-results N`: number of results.
+- `--search-type neural|keyword|auto`: Exa search type.
+- `--include-text`: include page text snippets.
+- `--include-highlights`: include Exa highlights.
+- `--include-domains CSV`: search only these domains, for example `docs.python.org,developer.mozilla.org`.
+- `--exclude-domains CSV`: exclude these domains.
+- `--start-published-date YYYY-MM-DD`: only results after this date.
+- `--category NAME`: Exa category filter.
+
+Find similar pages:
+
+```powershell
+smart-search exa-similar "https://example.com/article" --num-results 5 --format json
+```
+
+Fetch a page:
+
+```powershell
+smart-search fetch "https://example.com" --format markdown
+```
+
+`fetch` tries Tavily first. If Tavily returns no content and Firecrawl is configured, it tries Firecrawl.
+
+Map a documentation site:
+
+```powershell
+smart-search map "https://docs.example.com" --max-depth 1 --limit 50 --format json
+```
+
+`map` currently uses Tavily only.
+
+Useful options:
+
+- `--instructions TEXT`: tell Tavily what to focus on.
+- `--max-depth N`: maximum link depth.
+- `--max-breadth N`: maximum links to expand per depth.
+- `--limit N`: maximum URLs returned.
+- `--timeout SECONDS`: site map timeout.
+
+Read current default model:
+
+```powershell
+smart-search model current --format json
+```
+
+Change default model:
+
+```powershell
+smart-search model set "your-model-name" --format json
+```
+
+Run offline regression tests:
+
+```powershell
+smart-search regression
+```
+
+### Output Format
+
+Use JSON by default when another tool or agent will parse the result:
+
+```powershell
+smart-search search "query" --format json
+```
+
+Use Markdown when you want to read fetched page content:
+
+```powershell
+smart-search fetch "https://example.com" --format markdown
+```
+
+Save output to a file:
+
+```powershell
+smart-search exa-search "Python packaging guide" --format json --output result.json
+```
+
+### Exit Codes
+
+| Code | Meaning |
+| ---: | --- |
+| `0` | Success |
+| `2` | Parameter error |
+| `3` | Configuration error, such as a missing key |
+| `4` | Network or upstream provider error |
+| `5` | Runtime or parse error |
+
+### Beginner Troubleshooting
+
+If `smart-search doctor --format json` returns `config_error`:
+
+1. Check `SMART_SEARCH_API_URL`.
+2. Check `SMART_SEARCH_API_KEY`.
+3. Open a new terminal if you recently changed environment variables.
+
+If `search` is slow:
+
+1. Reduce `--extra-sources`, for example from `5` to `1`.
+2. Split a broad question into smaller searches.
+3. Use `exa-search` to find sources first, then `fetch` key pages.
+
+To check whether the tool itself works:
+
+```powershell
+smart-search --help
+smart-search regression
+```
+
+### Development
+
+Run all tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+```
+
+Run CLI regression tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m smart_search.cli regression
+```
+
+Before publishing, check that no real keys are committed:
+
+```powershell
+rg -n "SMART_SEARCH_API_KEY|EXA_API_KEY|TAVILY_API_KEY|FIRECRAWL_API_KEY" .
+```
+
+The `your-api-key` and `your-exa-key` strings in this README are placeholders. Do not replace them with real secrets before committing.
