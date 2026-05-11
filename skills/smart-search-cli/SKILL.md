@@ -65,25 +65,8 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - Do not ask users to set Windows global API-key environment variables by default.
 - If keys are changed with `smart-search config set`, rerun the CLI; no Codex restart is needed.
 - If PATH is changed, a new terminal or Codex restart may be needed.
-- On this Windows host, `smart-search` may be managed by mise as `npm:@konbakuyomu/smart-search`. Do not diagnose it with `mise ls smart-search`; that asks for a non-existent mise tool name. Use `mise ls "npm:@konbakuyomu/smart-search"`, `mise which smart-search`, and `Get-Command smart-search -All`.
-- If `smart-search doctor --format json` fails through a stale mise shim, first verify the real installed binary and call it directly for the current task:
-
-```powershell
-Get-Command smart-search -All | Format-List Source,CommandType,Definition
-Get-ChildItem "$env:LOCALAPPDATA\mise\installs\npm-konbakuyomu-smart-search" -Directory
-& "$env:LOCALAPPDATA\mise\installs\npm-konbakuyomu-smart-search\0.1.4\smart-search.cmd" doctor --format json
-```
-
-- Only after confirming the real install is missing, refresh mise:
-
-```powershell
-mise use -g "npm:@konbakuyomu/smart-search@latest"
-mise reshim -f
-smart-search doctor --format json
-```
-
-- If `mise reshim` fails on `C:\Users\dxt98\AppData\Local\mise\shims\.mode` with access denied, do not keep retrying it. Use the real installed `smart-search.cmd` path for the current task and report the shim permission issue separately.
-- If `Get-Command smart-search -All` or `where smart-search` shows `C:\Users\dxt98\AppData\Local\mise\shims\smart-search.exe`, treat that binary shim as stale. It may bypass the fixed `.ps1` / `.cmd` wrappers and emit `mise ERROR cannot find binary path`; prefer `smart-search.cmd` or the real install path.
+- In sandboxed runtimes (Codex CLI, containers, CI) where the user's home directory may not be writable from spawned subprocesses, set `SMART_SEARCH_CONFIG_DIR` to an absolute path the runtime can write to. The CLI uses it for both config and logs and skips home-directory fallback.
+- If `smart-search doctor --format json` returns `ok: false`, follow the `error` field's guidance (`smart-search setup` or `smart-search config set KEY VALUE`); do not silently fall back to native web search.
 
 ## Command Patterns
 
