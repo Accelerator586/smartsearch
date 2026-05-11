@@ -178,6 +178,7 @@ $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 | `SMART_SEARCH_DEBUG` | 是否打开调试日志 |
 | `SMART_SEARCH_LOG_LEVEL` | 日志级别，默认 `INFO` |
 | `SMART_SEARCH_LOG_DIR` | 日志目录 |
+| `SMART_SEARCH_CONFIG_DIR` | 显式指定 config 和 logs 的根目录，默认 `~/.config/smart-search`；在 sandbox / 容器 / CI 等 home 目录不可写场景下推荐显式设置 |
 | `SMART_SEARCH_OUTPUT_CLEANUP` | 是否清理模型输出里的多余思考/拒答前缀 |
 | `SMART_SEARCH_LOG_TO_FILE` | 是否把日志写入文件 |
 | `SSL_VERIFY` | 是否校验证书，默认开启 |
@@ -524,6 +525,7 @@ Common settings:
 | `SMART_SEARCH_DEBUG` | Enable debug logs |
 | `SMART_SEARCH_LOG_LEVEL` | Log level, defaults to `INFO` |
 | `SMART_SEARCH_LOG_DIR` | Log directory |
+| `SMART_SEARCH_CONFIG_DIR` | Override the root for both config and logs (default `~/.config/smart-search`); recommended in sandbox / container / CI where the home directory is not writable |
 | `SMART_SEARCH_OUTPUT_CLEANUP` | Clean extra reasoning/refusal prefixes from model output |
 | `SMART_SEARCH_LOG_TO_FILE` | Write logs to a file |
 | `SSL_VERIFY` | Verify TLS certificates, enabled by default |

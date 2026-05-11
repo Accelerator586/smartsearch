@@ -48,34 +48,48 @@ class Config:
             cls._instance._cached_model = None
         return cls._instance
 
+    @staticmethod
+    def _resolve_config_dir() -> tuple[Path, bool]:
+        env_dir = os.getenv("SMART_SEARCH_CONFIG_DIR")
+        if env_dir:
+            return Path(env_dir).expanduser(), True
+        return Path.home() / ".config" / "smart-search", False
+
+    @staticmethod
+    def _safe_mkdir(p: Path) -> bool:
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            return True
+        except (PermissionError, OSError):
+            return False
+
     @property
     def config_file(self) -> Path:
         if self._config_file is None:
-            config_dir = Path.home() / ".config" / "smart-search"
-            try:
-                config_dir.mkdir(parents=True, exist_ok=True)
-            except OSError:
-                config_dir = Path.cwd() / ".smart-search"
-                config_dir.mkdir(parents=True, exist_ok=True)
+            config_dir, env_pinned = self._resolve_config_dir()
+            ok = self._safe_mkdir(config_dir)
+            if not env_pinned and not ok:
+                cwd_dir = Path.cwd() / ".smart-search"
+                if self._safe_mkdir(cwd_dir):
+                    config_dir = cwd_dir
             self._config_file = config_dir / "config.json"
         return self._config_file
 
     def _load_config_file(self) -> dict:
-        if not self.config_file.exists():
-            return {}
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 return data if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, IOError):
+        except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError):
             return {}
 
     def _save_config_file(self, config_data: dict) -> None:
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, ensure_ascii=False, indent=2)
-        except IOError as e:
-            raise ValueError(f"无法保存配置文件: {str(e)}")
+        except (IOError, PermissionError, OSError) as e:
+            hint = " (sandbox/CI 下可设 SMART_SEARCH_CONFIG_DIR 指向可写目录)" if isinstance(e, PermissionError) else ""
+            raise ValueError(f"无法保存配置文件: {str(e)}{hint}")
 
     def _get_config_value(self, key: str, default: str | None = None) -> str | None:
         env_value = os.getenv(key)
@@ -255,22 +269,19 @@ class Config:
         if log_dir.is_absolute():
             return log_dir
 
-        home_log_dir = Path.home() / ".config" / "smart-search" / log_dir_str
-        try:
-            home_log_dir.mkdir(parents=True, exist_ok=True)
-            return home_log_dir
-        except OSError:
-            pass
+        config_dir, env_pinned = self._resolve_config_dir()
+        primary_log_dir = config_dir / log_dir_str
+        if self._safe_mkdir(primary_log_dir):
+            return primary_log_dir
+        if env_pinned:
+            return primary_log_dir
 
         cwd_log_dir = Path.cwd() / log_dir_str
-        try:
-            cwd_log_dir.mkdir(parents=True, exist_ok=True)
+        if self._safe_mkdir(cwd_log_dir):
             return cwd_log_dir
-        except OSError:
-            pass
 
         tmp_log_dir = Path("/tmp") / "smart-search" / log_dir_str
-        tmp_log_dir.mkdir(parents=True, exist_ok=True)
+        self._safe_mkdir(tmp_log_dir)
         return tmp_log_dir
 
     def _apply_model_suffix(self, model: str) -> str:
