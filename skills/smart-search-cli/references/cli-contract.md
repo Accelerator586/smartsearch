@@ -3,6 +3,7 @@
 ## Entrypoints
 
 - `smart-search` is the primary CLI.
+- `smart-search --version`, `smart-search --v`, and `smart-search -v` print the installed version and exit with code `0`.
 - `smart-search` should resolve from the user's PATH.
 - This bundled skill is maintained with the `smartsearch` repository.
 - Private API keys should be saved with `smart-search setup` or `smart-search config set`.
@@ -31,6 +32,40 @@
 - `smart-search model current [--format json] [--output PATH]`
 - `smart-search regression`
 - `smart-search smoke [--mode mock|live] [--mock] [--live] [--format json|markdown] [--output PATH]`
+- `smart-search --version`
+
+## Aliases
+
+Top-level aliases must normalize to the same service behavior as their full command:
+
+| Full command | Aliases |
+| --- | --- |
+| `smart-search --version` | `smart-search --v`, `smart-search -v` |
+| `search` | `s` |
+| `fetch` | `f` |
+| `map` | `m` |
+| `exa-search` | `exa`, `x` |
+| `exa-similar` | `xs` |
+| `zhipu-search` | `z`, `zp` |
+| `context7-library` | `c7`, `ctx7` |
+| `context7-docs` | `c7d`, `c7docs`, `ctx7-docs` |
+| `doctor` | `d` |
+| `setup` | `init` |
+| `config` | `cfg` |
+| `model` | `mdl` |
+| `smoke` | `sm` |
+| `regression` | `reg` |
+
+Nested aliases:
+
+| Full command | Aliases |
+| --- | --- |
+| `config path` | `cfg p` |
+| `config list` | `cfg ls`, `cfg l` |
+| `config set` | `cfg s` |
+| `config unset` | `cfg rm`, `cfg u` |
+| `model current` | `mdl cur`, `mdl c` |
+| `model set` | `mdl s` |
 
 ## JSON Expectations
 

@@ -65,6 +65,18 @@ smart-search
 | `regression` | 跑离线回归测试 | 本地 pytest，不调用真实外部服务 |
 | `smoke` | 跑 provider 路由和兜底冒烟测试 | `--mock` 不用真实 key；`--live` 调真实 provider |
 
+常用简写：
+
+| 完整命令 | 简写 |
+| --- | --- |
+| `--version` | `--v` / `-v` |
+| `search` / `fetch` / `map` / `doctor` | `s` / `f` / `m` / `d` |
+| `exa-search` / `exa-similar` / `zhipu-search` | `exa` 或 `x` / `xs` / `z` 或 `zp` |
+| `context7-library` / `context7-docs` | `c7` 或 `ctx7` / `c7docs` 或 `ctx7-docs` |
+| `config list` / `config set` / `config unset` | `cfg ls` / `cfg s` / `cfg rm` |
+| `model current` / `model set` | `mdl cur` / `mdl s` |
+| `smoke` / `regression` | `sm` / `reg` |
+
 `search --extra-sources N` 的行为要特别注意：
 
 - 如果 Tavily 和 Firecrawl 都配置了，会把额外来源拆给两边，Tavily 大约占 60%，Firecrawl 占剩下部分。
@@ -89,6 +101,7 @@ smart-search
 ```powershell
 npm install -g @konbakuyomu/smart-search@latest
 smart-search --help
+smart-search --version
 ```
 
 这个 npm 包会在安装时自动创建一个独立的 Python 虚拟环境，并把本仓库里的 Python CLI 安装进去。你仍然只需要使用 `smart-search` 这个命令。
@@ -402,6 +415,7 @@ smart-search exa-search "Python packaging guide" --format json --output result.j
 
 ```powershell
 smart-search --help
+smart-search --version
 smart-search regression
 ```
 
@@ -473,6 +487,18 @@ Do not add xAI `web_search` / `x_search` tools or the old `search_parameters` fi
 | `model` | Read or change the default model name | Local config file |
 | `regression` | Run offline regression tests | Local pytest, no real provider calls |
 
+Common short aliases:
+
+| Full command | Alias |
+| --- | --- |
+| `--version` | `--v` / `-v` |
+| `search` / `fetch` / `map` / `doctor` | `s` / `f` / `m` / `d` |
+| `exa-search` / `exa-similar` / `zhipu-search` | `exa` or `x` / `xs` / `z` or `zp` |
+| `context7-library` / `context7-docs` | `c7` or `ctx7` / `c7docs` or `ctx7-docs` |
+| `config list` / `config set` / `config unset` | `cfg ls` / `cfg s` / `cfg rm` |
+| `model current` / `model set` | `mdl cur` / `mdl s` |
+| `smoke` / `regression` | `sm` / `reg` |
+
 `search --extra-sources N` works like this:
 
 - If both Tavily and Firecrawl are configured, extra sources are split between them. Tavily gets about 60%, Firecrawl gets the rest.
@@ -497,6 +523,7 @@ If you want a one-command install similar to `ctx7`, use npm:
 ```powershell
 npm install -g @konbakuyomu/smart-search@latest
 smart-search --help
+smart-search --version
 ```
 
 The npm package creates an isolated Python virtual environment during installation and installs this repository's Python CLI into it. The command remains `smart-search`.
@@ -805,6 +832,7 @@ To check whether the tool itself works:
 
 ```powershell
 smart-search --help
+smart-search --version
 smart-search regression
 ```
 

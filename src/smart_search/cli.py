@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import getpass
 import json
+from importlib import metadata
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,61 @@ EXIT_PARAMETER_ERROR = 2
 EXIT_CONFIG_ERROR = 3
 EXIT_NETWORK_ERROR = 4
 EXIT_RUNTIME_ERROR = 5
+
+COMMAND_ALIASES = {
+    "search": ["s"],
+    "fetch": ["f"],
+    "map": ["m"],
+    "exa-search": ["exa", "x"],
+    "exa-similar": ["xs"],
+    "zhipu-search": ["z", "zp"],
+    "context7-library": ["c7", "ctx7"],
+    "context7-docs": ["c7d", "c7docs", "ctx7-docs"],
+    "smoke": ["sm"],
+    "doctor": ["d"],
+    "model": ["mdl"],
+    "setup": ["init"],
+    "config": ["cfg"],
+    "regression": ["reg"],
+}
+
+CONFIG_COMMAND_ALIASES = {
+    "path": ["p"],
+    "list": ["ls", "l"],
+    "set": ["s"],
+    "unset": ["rm", "u"],
+}
+
+MODEL_COMMAND_ALIASES = {
+    "set": ["s"],
+    "current": ["cur", "c"],
+}
+
+
+def _get_version() -> str:
+    root = Path(__file__).resolve().parents[2]
+    package_json = root / "package.json"
+    try:
+        version = json.loads(package_json.read_text(encoding="utf-8")).get("version", "")
+        if version:
+            return str(version)
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    pyproject = root / "pyproject.toml"
+    try:
+        for line in pyproject.read_text(encoding="utf-8").splitlines():
+            if line.startswith("version = "):
+                return line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+
+    try:
+        return metadata.version("smart-search")
+    except metadata.PackageNotFoundError:
+        pass
+
+    return "unknown"
 
 
 def _json(data: Any) -> str:
@@ -332,9 +388,13 @@ def _run_regression() -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="smart-search", description="Smart Search CLI for AI-agent web research.")
+    parser.add_argument("-v", "--v", "--version", action="version", version=f"%(prog)s {_get_version()}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    search_parser = sub.add_parser("search", help="Run OpenAI-compatible web search.")
+    search_parser = sub.add_parser(
+        "search", aliases=COMMAND_ALIASES["search"], help="Run OpenAI-compatible web search."
+    )
+    search_parser.set_defaults(command="search")
     search_parser.add_argument("query")
     search_parser.add_argument("--platform", default="")
     search_parser.add_argument("--model", default="")
@@ -345,11 +405,13 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--timeout", type=float, default=90, metavar="SECONDS", help="Hard timeout in seconds.")
     _add_format_args(search_parser)
 
-    fetch_parser = sub.add_parser("fetch", help="Fetch a URL as markdown.")
+    fetch_parser = sub.add_parser("fetch", aliases=COMMAND_ALIASES["fetch"], help="Fetch a URL as markdown.")
+    fetch_parser.set_defaults(command="fetch")
     fetch_parser.add_argument("url")
     _add_format_args(fetch_parser)
 
-    map_parser = sub.add_parser("map", help="Map a website structure.")
+    map_parser = sub.add_parser("map", aliases=COMMAND_ALIASES["map"], help="Map a website structure.")
+    map_parser.set_defaults(command="map")
     map_parser.add_argument("url")
     map_parser.add_argument("--instructions", default="")
     map_parser.add_argument("--max-depth", type=int, default=1)
@@ -358,7 +420,10 @@ def build_parser() -> argparse.ArgumentParser:
     map_parser.add_argument("--timeout", type=int, default=150)
     _add_format_args(map_parser)
 
-    exa_parser = sub.add_parser("exa-search", help="Run Exa source-first search.")
+    exa_parser = sub.add_parser(
+        "exa-search", aliases=COMMAND_ALIASES["exa-search"], help="Run Exa source-first search."
+    )
+    exa_parser.set_defaults(command="exa-search")
     exa_parser.add_argument("query")
     exa_parser.add_argument("--num-results", type=int, default=5)
     exa_parser.add_argument("--search-type", choices=["neural", "keyword", "auto"], default="neural")
@@ -370,12 +435,18 @@ def build_parser() -> argparse.ArgumentParser:
     exa_parser.add_argument("--category", default="")
     _add_format_args(exa_parser)
 
-    similar_parser = sub.add_parser("exa-similar", help="Find pages similar to a URL with Exa.")
+    similar_parser = sub.add_parser(
+        "exa-similar", aliases=COMMAND_ALIASES["exa-similar"], help="Find pages similar to a URL with Exa."
+    )
+    similar_parser.set_defaults(command="exa-similar")
     similar_parser.add_argument("url")
     similar_parser.add_argument("--num-results", type=int, default=5)
     _add_format_args(similar_parser)
 
-    zhipu_parser = sub.add_parser("zhipu-search", help="Run Zhipu Web Search source-first search.")
+    zhipu_parser = sub.add_parser(
+        "zhipu-search", aliases=COMMAND_ALIASES["zhipu-search"], help="Run Zhipu Web Search source-first search."
+    )
+    zhipu_parser.set_defaults(command="zhipu-search")
     zhipu_parser.add_argument("query")
     zhipu_parser.add_argument("--count", type=int, default=10)
     zhipu_parser.add_argument("--search-engine", default="")
@@ -384,17 +455,30 @@ def build_parser() -> argparse.ArgumentParser:
     zhipu_parser.add_argument("--content-size", choices=["medium", "high"], default="medium")
     _add_format_args(zhipu_parser)
 
-    context7_library_parser = sub.add_parser("context7-library", help="Resolve Context7 library candidates.")
+    context7_library_parser = sub.add_parser(
+        "context7-library",
+        aliases=COMMAND_ALIASES["context7-library"],
+        help="Resolve Context7 library candidates.",
+    )
+    context7_library_parser.set_defaults(command="context7-library")
     context7_library_parser.add_argument("name")
     context7_library_parser.add_argument("query", nargs="?", default="")
     _add_format_args(context7_library_parser)
 
-    context7_docs_parser = sub.add_parser("context7-docs", help="Fetch Context7 docs for a library.")
+    context7_docs_parser = sub.add_parser(
+        "context7-docs",
+        aliases=COMMAND_ALIASES["context7-docs"],
+        help="Fetch Context7 docs for a library.",
+    )
+    context7_docs_parser.set_defaults(command="context7-docs")
     context7_docs_parser.add_argument("library_id")
     context7_docs_parser.add_argument("query")
     _add_format_args(context7_docs_parser)
 
-    smoke_parser = sub.add_parser("smoke", help="Run provider routing and fallback smoke checks.")
+    smoke_parser = sub.add_parser(
+        "smoke", aliases=COMMAND_ALIASES["smoke"], help="Run provider routing and fallback smoke checks."
+    )
+    smoke_parser.set_defaults(command="smoke")
     smoke_mode = smoke_parser.add_mutually_exclusive_group()
     smoke_mode.add_argument("--mode", choices=["mock", "live"], default=None)
     smoke_mode.add_argument("--mock", dest="mode", action="store_const", const="mock", help="Run offline mock smoke checks.")
@@ -402,18 +486,29 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser.set_defaults(mode="mock")
     _add_format_args(smoke_parser)
 
-    doctor_parser = sub.add_parser("doctor", help="Show masked configuration and connection checks.")
+    doctor_parser = sub.add_parser(
+        "doctor", aliases=COMMAND_ALIASES["doctor"], help="Show masked configuration and connection checks."
+    )
+    doctor_parser.set_defaults(command="doctor")
     _add_format_args(doctor_parser)
 
-    model_parser = sub.add_parser("model", help="Read or change the default OpenAI-compatible model.")
+    model_parser = sub.add_parser(
+        "model", aliases=COMMAND_ALIASES["model"], help="Read or change the default OpenAI-compatible model."
+    )
+    model_parser.set_defaults(command="model")
     model_sub = model_parser.add_subparsers(dest="model_command", required=True)
-    model_set = model_sub.add_parser("set")
+    model_set = model_sub.add_parser("set", aliases=MODEL_COMMAND_ALIASES["set"])
+    model_set.set_defaults(model_command="set")
     model_set.add_argument("model")
     _add_format_args(model_set)
-    model_current = model_sub.add_parser("current")
+    model_current = model_sub.add_parser("current", aliases=MODEL_COMMAND_ALIASES["current"])
+    model_current.set_defaults(model_command="current")
     _add_format_args(model_current)
 
-    setup_parser = sub.add_parser("setup", help="Interactively save local provider configuration.")
+    setup_parser = sub.add_parser(
+        "setup", aliases=COMMAND_ALIASES["setup"], help="Interactively save local provider configuration."
+    )
+    setup_parser.set_defaults(command="setup")
     setup_parser.add_argument("--non-interactive", action="store_true", help="Only save values passed as flags.")
     setup_parser.add_argument("--api-url", default="", help="Save SMART_SEARCH_API_URL.")
     setup_parser.add_argument("--api-key", default="", help="Save SMART_SEARCH_API_KEY.")
@@ -437,21 +532,31 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--firecrawl-key", default="", help="Save FIRECRAWL_API_KEY.")
     _add_format_args(setup_parser)
 
-    config_parser = sub.add_parser("config", help="Read or edit the local Smart Search config file.")
+    config_parser = sub.add_parser(
+        "config", aliases=COMMAND_ALIASES["config"], help="Read or edit the local Smart Search config file."
+    )
+    config_parser.set_defaults(command="config")
     config_sub = config_parser.add_subparsers(dest="config_command", required=True)
-    config_path = config_sub.add_parser("path")
+    config_path = config_sub.add_parser("path", aliases=CONFIG_COMMAND_ALIASES["path"])
+    config_path.set_defaults(config_command="path")
     _add_format_args(config_path)
-    config_list = config_sub.add_parser("list")
+    config_list = config_sub.add_parser("list", aliases=CONFIG_COMMAND_ALIASES["list"])
+    config_list.set_defaults(config_command="list")
     _add_format_args(config_list)
-    config_set = config_sub.add_parser("set")
+    config_set = config_sub.add_parser("set", aliases=CONFIG_COMMAND_ALIASES["set"])
+    config_set.set_defaults(config_command="set")
     config_set.add_argument("key")
     config_set.add_argument("value")
     _add_format_args(config_set)
-    config_unset = config_sub.add_parser("unset")
+    config_unset = config_sub.add_parser("unset", aliases=CONFIG_COMMAND_ALIASES["unset"])
+    config_unset.set_defaults(config_command="unset")
     config_unset.add_argument("key")
     _add_format_args(config_unset)
 
-    sub.add_parser("regression", help="Run offline CLI regression tests.")
+    regression_parser = sub.add_parser(
+        "regression", aliases=COMMAND_ALIASES["regression"], help="Run offline CLI regression tests."
+    )
+    regression_parser.set_defaults(command="regression")
     return parser
 
 

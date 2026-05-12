@@ -31,6 +31,18 @@ def test_help_contains_commands(capsys):
     assert "regression" in out
 
 
+def test_version_flags_exit_successfully(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_get_version", lambda: "9.9.9-test")
+
+    for flag in ["--version", "--v", "-v"]:
+        try:
+            cli.main([flag])
+        except SystemExit as exc:
+            assert exc.code == 0
+
+        assert capsys.readouterr().out.strip() == "smart-search 9.9.9-test"
+
+
 def test_each_subcommand_help_exits_successfully(capsys):
     commands = [
         ["search", "--help"],
@@ -64,6 +76,54 @@ def test_each_subcommand_help_exits_successfully(capsys):
     out = capsys.readouterr().out
     assert "usage: smart-search search" in out
     assert "usage: smart-search regression" in out
+
+
+def test_command_aliases_parse_to_canonical_commands():
+    parser = cli.build_parser()
+
+    command_cases = [
+        (["s", "query"], "search"),
+        (["f", "https://example.com"], "fetch"),
+        (["m", "https://example.com"], "map"),
+        (["exa", "query"], "exa-search"),
+        (["x", "query"], "exa-search"),
+        (["xs", "https://example.com"], "exa-similar"),
+        (["z", "query"], "zhipu-search"),
+        (["zp", "query"], "zhipu-search"),
+        (["c7", "react"], "context7-library"),
+        (["ctx7", "react"], "context7-library"),
+        (["c7d", "/facebook/react", "hooks"], "context7-docs"),
+        (["c7docs", "/facebook/react", "hooks"], "context7-docs"),
+        (["ctx7-docs", "/facebook/react", "hooks"], "context7-docs"),
+        (["sm"], "smoke"),
+        (["d"], "doctor"),
+        (["init", "--non-interactive"], "setup"),
+        (["cfg", "ls"], "config"),
+        (["mdl", "cur"], "model"),
+        (["reg"], "regression"),
+    ]
+
+    for argv, command in command_cases:
+        assert parser.parse_args(argv).command == command
+
+    config_cases = [
+        (["cfg", "p"], "path"),
+        (["cfg", "ls"], "list"),
+        (["cfg", "l"], "list"),
+        (["cfg", "s", "SMART_SEARCH_MODEL", "grok"], "set"),
+        (["cfg", "rm", "SMART_SEARCH_MODEL"], "unset"),
+        (["cfg", "u", "SMART_SEARCH_MODEL"], "unset"),
+    ]
+    for argv, config_command in config_cases:
+        assert parser.parse_args(argv).config_command == config_command
+
+    model_cases = [
+        (["mdl", "s", "grok"], "set"),
+        (["mdl", "cur"], "current"),
+        (["mdl", "c"], "current"),
+    ]
+    for argv, model_command in model_cases:
+        assert parser.parse_args(argv).model_command == model_command
 
 
 def test_search_help_exposes_timeout(capsys):
@@ -104,6 +164,46 @@ def test_search_outputs_json_and_file(monkeypatch, capsys):
     assert written["path"] == output
     assert stdout_data["sources_count"] == 1
     assert file_data["content"] == "Answer"
+
+
+def test_search_alias_uses_canonical_command(monkeypatch, capsys):
+    captured = {}
+
+    async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
+        captured["query"] = query
+        return {"ok": True, "content": "Answer", "sources": [], "sources_count": 0}
+
+    monkeypatch.setattr(cli.service, "search", fake_search)
+
+    code = cli.main(["s", "alias query"])
+
+    assert code == cli.EXIT_OK
+    assert captured["query"] == "alias query"
+    assert json.loads(capsys.readouterr().out)["content"] == "Answer"
+
+
+def test_fetch_alias_uses_canonical_command(monkeypatch, capsys):
+    async def fake_fetch(url):
+        return {"ok": True, "url": url, "content": "Page"}
+
+    monkeypatch.setattr(cli.service, "fetch", fake_fetch)
+
+    code = cli.main(["f", "https://example.com"])
+
+    assert code == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["url"] == "https://example.com"
+
+
+def test_doctor_alias_uses_canonical_command(monkeypatch, capsys):
+    async def fake_doctor():
+        return {"ok": True, "config_status": "ok"}
+
+    monkeypatch.setattr(cli.service, "doctor", fake_doctor)
+
+    code = cli.main(["d"])
+
+    assert code == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["config_status"] == "ok"
 
 
 def test_search_timeout_outputs_json_and_exit_4(monkeypatch, capsys):
@@ -255,6 +355,22 @@ def test_model_set_uses_service(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["current_model"] == "grok-4-fast"
 
 
+def test_model_aliases_use_canonical_commands(monkeypatch, capsys):
+    def fake_current_model():
+        return {"ok": True, "current_model": "grok-4-fast"}
+
+    def fake_set_model(model):
+        return {"ok": True, "current_model": model}
+
+    monkeypatch.setattr(cli.service, "current_model", fake_current_model)
+    monkeypatch.setattr(cli.service, "set_model", fake_set_model)
+
+    assert cli.main(["mdl", "cur"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["current_model"] == "grok-4-fast"
+    assert cli.main(["mdl", "s", "grok-4-fast"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["current_model"] == "grok-4-fast"
+
+
 def test_config_set_masks_value(monkeypatch, capsys):
     def fake_config_set(key, value):
         return {"ok": True, "key": key, "value": "sk-t********cret", "config_file": "C:/tmp/config.json"}
@@ -283,6 +399,38 @@ def test_config_list_does_not_request_secrets(monkeypatch, capsys):
     assert code == cli.EXIT_OK
     assert captured["show_secrets"] is False
     assert json.loads(capsys.readouterr().out)["values"]["SMART_SEARCH_API_KEY"].endswith("cret")
+
+
+def test_config_aliases_use_canonical_commands(monkeypatch, capsys):
+    captured = {}
+
+    def fake_config_list(show_secrets=False):
+        captured["show_secrets"] = show_secrets
+        return {"ok": True, "values": {"SMART_SEARCH_MODEL": "grok"}}
+
+    def fake_config_set(key, value):
+        captured["set"] = (key, value)
+        return {"ok": True, "key": key, "value": value}
+
+    def fake_config_unset(key):
+        captured["unset"] = key
+        return {"ok": True, "key": key}
+
+    monkeypatch.setattr(cli.service, "config_list", fake_config_list)
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_unset", fake_config_unset)
+
+    assert cli.main(["cfg", "ls"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["values"]["SMART_SEARCH_MODEL"] == "grok"
+    assert captured["show_secrets"] is False
+
+    assert cli.main(["cfg", "s", "SMART_SEARCH_MODEL", "grok-4-fast"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["value"] == "grok-4-fast"
+    assert captured["set"] == ("SMART_SEARCH_MODEL", "grok-4-fast")
+
+    assert cli.main(["cfg", "rm", "SMART_SEARCH_MODEL"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["key"] == "SMART_SEARCH_MODEL"
+    assert captured["unset"] == "SMART_SEARCH_MODEL"
 
 
 def test_setup_non_interactive_saves_values(monkeypatch, capsys):
@@ -387,6 +535,40 @@ def test_smoke_command_uses_service(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["mode"] == "mock"
 
 
+def test_provider_and_smoke_aliases_use_canonical_commands(monkeypatch, capsys):
+    async def fake_exa_search(*args, **kwargs):
+        return {"ok": True, "provider": "exa"}
+
+    async def fake_zhipu_search(*args, **kwargs):
+        return {"ok": True, "provider": "zhipu"}
+
+    async def fake_context7_library(*args, **kwargs):
+        return {"ok": True, "provider": "context7-library"}
+
+    async def fake_context7_docs(*args, **kwargs):
+        return {"ok": True, "provider": "context7-docs"}
+
+    async def fake_smoke(mode="mock"):
+        return {"ok": True, "mode": mode, "failed_cases": [], "cases": []}
+
+    monkeypatch.setattr(cli.service, "exa_search", fake_exa_search)
+    monkeypatch.setattr(cli.service, "zhipu_search", fake_zhipu_search)
+    monkeypatch.setattr(cli.service, "context7_library", fake_context7_library)
+    monkeypatch.setattr(cli.service, "context7_docs", fake_context7_docs)
+    monkeypatch.setattr(cli.service, "smoke", fake_smoke)
+
+    assert cli.main(["exa", "query"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["provider"] == "exa"
+    assert cli.main(["z", "query"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["provider"] == "zhipu"
+    assert cli.main(["c7", "react"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["provider"] == "context7-library"
+    assert cli.main(["c7docs", "/facebook/react", "hooks"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["provider"] == "context7-docs"
+    assert cli.main(["sm"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["mode"] == "mock"
+
+
 def test_smoke_command_accepts_mock_and_live_flags(monkeypatch, capsys):
     captured = []
 
@@ -464,3 +646,19 @@ def test_regression_invokes_pytest(monkeypatch):
     assert "pytest" in captured["cmd"]
     assert "tests/test_cli.py" in captured["cmd"]
     assert "tests/test_smoke.py" in captured["cmd"]
+
+
+def test_regression_alias_invokes_pytest(monkeypatch):
+    captured = {}
+
+    def fake_call(cmd, cwd):
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        return 0
+
+    monkeypatch.setattr(cli.subprocess, "call", fake_call)
+
+    code = cli.main(["reg"])
+
+    assert code == 0
+    assert "pytest" in captured["cmd"]

@@ -92,6 +92,7 @@ smart-search zhipu-search "today China AI news" --count 5 --format json
 smart-search fetch "https://example.com" --format markdown --output page.md
 smart-search map "https://docs.example.com" --instructions "Find API reference pages" --max-depth 1 --max-breadth 20 --limit 50 --format json
 smart-search setup
+smart-search --version
 smart-search config path --format json
 smart-search config list --format json
 smart-search config set SMART_SEARCH_API_MODE "xai-responses" --format json
@@ -104,6 +105,22 @@ smart-search model set "model-id" --format json
 smart-search doctor --format json
 smart-search regression
 smart-search smoke --mock --format json
+```
+
+Short aliases are supported for interactive use:
+
+```powershell
+smart-search --v
+smart-search s "query" --format json
+smart-search f "https://example.com" --format markdown
+smart-search exa "OpenAI Responses API documentation" --format json
+smart-search z "today China AI news" --format json
+smart-search c7 "react" "hooks" --format json
+smart-search c7docs "/facebook/react" "useEffect cleanup" --format json
+smart-search cfg ls --format json
+smart-search mdl cur --format json
+smart-search sm --format json
+smart-search reg
 ```
 
 ## Guardrails
