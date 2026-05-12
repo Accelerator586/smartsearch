@@ -141,6 +141,25 @@ smart-search setup
 smart-search doctor --format json
 ```
 
+交互式 `setup` 会先让你选择语言，然后按能力分组配置：
+
+- `main_search` 主搜索：xAI Responses 或 OpenAI-compatible 至少一个。
+- `docs_search` 文档搜索：Exa 或 Context7 至少一个。
+- `web_fetch` 网页抓取：Tavily 或 Firecrawl 至少一个。
+- `web_search` 网页补强：Zhipu / Tavily / Firecrawl，属于可选增强。
+
+如果要直接进入英文向导：
+
+```powershell
+smart-search setup --lang en
+```
+
+如果你需要像旧版一样逐项配置底层 key：
+
+```powershell
+smart-search setup --advanced
+```
+
 `setup` 会把配置保存到当前用户的本机配置文件。你可以查看配置文件路径：
 
 ```powershell
@@ -561,6 +580,25 @@ Most users should use the built-in setup wizard instead of manually editing glob
 ```powershell
 smart-search setup
 smart-search doctor --format json
+```
+
+Interactive `setup` asks for language first, then configures by capability group:
+
+- `main_search`: at least one of xAI Responses or OpenAI-compatible.
+- `docs_search`: at least one of Exa or Context7.
+- `web_fetch`: at least one of Tavily or Firecrawl.
+- `web_search`: Zhipu / Tavily / Firecrawl as optional reinforcement.
+
+To open the English wizard directly:
+
+```powershell
+smart-search setup --lang en
+```
+
+To configure low-level keys one by one like older releases:
+
+```powershell
+smart-search setup --advanced
 ```
 
 `setup` saves values to the current user's local Smart Search config file. To inspect the path:

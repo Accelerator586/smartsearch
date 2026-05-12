@@ -77,6 +77,8 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - If PATH is changed, a new terminal or Codex restart may be needed.
 - In sandboxed runtimes (Codex CLI, containers, CI) where the user's home directory may not be writable from spawned subprocesses, set `SMART_SEARCH_CONFIG_DIR` to an absolute path the runtime can write to. The CLI uses it for both config and logs and skips home-directory fallback.
 - If `smart-search doctor --format json` returns `ok: false`, follow the `error` field's guidance (`smart-search setup` or `smart-search config set KEY VALUE`); do not silently fall back to native web search.
+- Interactive `smart-search setup` is a language-selecting grouped wizard. It guides users through required `main_search`, `docs_search`, and fetch capability, then optional `web_search` reinforcement.
+- Use `smart-search setup --lang en` for an English wizard and `smart-search setup --advanced` only when low-level config keys must be shown one by one.
 
 ## Command Patterns
 
@@ -92,6 +94,8 @@ smart-search zhipu-search "today China AI news" --count 5 --format json
 smart-search fetch "https://example.com" --format markdown --output page.md
 smart-search map "https://docs.example.com" --instructions "Find API reference pages" --max-depth 1 --max-breadth 20 --limit 50 --format json
 smart-search setup
+smart-search setup --lang en
+smart-search setup --advanced
 smart-search --version
 smart-search config path --format json
 smart-search config list --format json

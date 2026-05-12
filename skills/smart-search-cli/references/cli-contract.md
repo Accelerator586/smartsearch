@@ -23,7 +23,7 @@
 - `smart-search context7-docs LIBRARY_ID QUERY [--format json|markdown] [--output PATH]`
 - `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown] [--output PATH]`
 - `smart-search doctor [--format json|markdown] [--output PATH]`
-- `smart-search setup [--non-interactive] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--tavily-key KEY] [--firecrawl-key KEY] [--format json|markdown] [--output PATH]`
+- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--tavily-key KEY] [--firecrawl-key KEY] [--format json|markdown] [--output PATH]`
 - `smart-search config path [--format json|markdown] [--output PATH]`
 - `smart-search config list [--format json|markdown] [--output PATH]`
 - `smart-search config set KEY VALUE [--format json|markdown] [--output PATH]`
@@ -95,6 +95,15 @@ Diagnostic output masks keys, reports `config_file` / `config_sources` / `primar
 Smoke output includes `ok`, `mode`, `failed_cases`, `cases`, `provider_attempts`, and `elapsed_ms`. Live smoke may include `degraded_cases` when a provider fails but a same-capability fallback remains available.
 
 Setup and config output should include `ok` and `config_file`. Saved API keys must be masked in command output.
+
+Interactive setup behavior:
+
+- Default `smart-search setup` asks for `zh` or `en`, then shows a grouped wizard.
+- Required groups are `main_search`, `docs_search`, and `web_fetch`; `web_search` is optional reinforcement.
+- `--lang zh|en` skips the language question.
+- `--advanced` shows low-level config keys one by one for compatibility with older setup behavior.
+- `--non-interactive` keeps script behavior and only saves values passed as flags.
+- Interactive output should summarize `minimum_profile_ok`, missing required capabilities, and next-step commands.
 
 Search timeout output uses `ok=false`, `error_type=network_error`, includes the timeout seconds in `error`, keeps `query`, `content`, `sources`, `sources_count`, `primary_sources`, `primary_sources_count`, `extra_sources`, and `extra_sources_count`, and exits with code `4`.
 
