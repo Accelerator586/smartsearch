@@ -141,12 +141,16 @@ smart-search setup
 smart-search doctor --format json
 ```
 
-交互式 `setup` 会先让你选择语言，然后按能力分组配置：
+交互式 `setup` 会先让你选择语言，然后按能力分组配置。默认界面支持方向键移动、空格勾选、回车确认；只有 API key 和自定义 URL 需要粘贴输入：
 
 - `main_search` 主搜索：xAI Responses 或 OpenAI-compatible 至少一个。
 - `docs_search` 文档搜索：Exa 或 Context7 至少一个。
 - `web_fetch` 网页抓取：Tavily 或 Firecrawl 至少一个。
 - `web_search` 网页补强：Zhipu / Tavily / Firecrawl，属于可选增强。
+
+如果你取消勾选一个已经配置过的 provider，`setup` 不会删除旧 key；删除配置请显式运行 `smart-search config unset KEY`。
+
+第一次不知道怎么填，先配齐三类：`main_search + docs_search + web_fetch`。OpenAI-compatible 示例地址用官方 `https://api.openai.com/v1`；Tavily 官方地址用 `https://api.tavily.com`，号池用 `https://<host>/api/tavily`。
 
 如果要直接进入英文向导：
 
@@ -172,18 +176,22 @@ smart-search config path --format json
 smart-search setup --non-interactive `
   --xai-api-key "your-xai-key" `
   --xai-model "grok-4-fast" `
-  --openai-compatible-api-url "https://your-relay.example.com/v1" `
-  --openai-compatible-api-key "your-relay-key" `
-  --openai-compatible-model "your-relay-model" `
+  --openai-compatible-api-url "https://api.openai.com/v1" `
+  --openai-compatible-api-key "your-openai-key" `
+  --openai-compatible-model "gpt-4.1" `
   --validation-level "balanced" `
   --fallback-mode "auto" `
   --minimum-profile "standard" `
   --exa-key "your-exa-key" `
   --context7-key "your-context7-key" `
   --zhipu-key "your-zhipu-key" `
+  --tavily-api-url "https://api.tavily.com" `
   --tavily-key "your-tavily-key" `
+  --firecrawl-api-url "https://api.firecrawl.dev/v2" `
   --firecrawl-key "your-firecrawl-key"
 ```
+
+Tavily 官方地址默认是 `https://api.tavily.com`。如果使用 Tavily Hikari/号池，REST base 应写成 `https://<host>/api/tavily`；`setup` 会把根域名或 `/mcp` 地址自动规范化到 `/api/tavily`。`/mcp` 是 MCP 入口，不是 Smart Search 调 Tavily REST 的地址。
 
 查看已保存配置时会自动遮住 key：
 
@@ -197,9 +205,9 @@ smart-search config list --format json
 $env:XAI_API_KEY = "your-xai-key"
 $env:XAI_MODEL = "grok-4-fast"
 $env:XAI_TOOLS = "web_search,x_search"
-$env:OPENAI_COMPATIBLE_API_URL = "https://your-relay.example.com/v1"
-$env:OPENAI_COMPATIBLE_API_KEY = "your-relay-key"
-$env:OPENAI_COMPATIBLE_MODEL = "your-relay-model"
+$env:OPENAI_COMPATIBLE_API_URL = "https://api.openai.com/v1"
+$env:OPENAI_COMPATIBLE_API_KEY = "your-openai-key"
+$env:OPENAI_COMPATIBLE_MODEL = "gpt-4.1"
 ```
 
 旧配置 `SMART_SEARCH_API_URL` / `SMART_SEARCH_API_KEY` / `SMART_SEARCH_API_MODE` / `SMART_SEARCH_MODEL` 仍兼容：`https://api.x.ai/v1` 会被识别为 xAI Responses，其他地址会被识别为 OpenAI-compatible。新配置存在时会优先生效，并把两条主搜索路线当成同能力平级 provider。
@@ -210,7 +218,9 @@ $env:OPENAI_COMPATIBLE_MODEL = "your-relay-model"
 $env:EXA_API_KEY = "your-exa-key"
 $env:CONTEXT7_API_KEY = "your-context7-key"
 $env:ZHIPU_API_KEY = "your-zhipu-key"
+$env:TAVILY_API_URL = "https://api.tavily.com"
 $env:TAVILY_API_KEY = "your-tavily-key"
+$env:FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2"
 $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 ```
 
@@ -254,7 +264,9 @@ $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 | `ZHIPU_API_KEY` | 智谱 Web Search key |
 | `ZHIPU_API_URL` | 智谱 API 地址，默认 `https://open.bigmodel.cn/api` |
 | `ZHIPU_SEARCH_ENGINE` | 智谱搜索引擎，默认 `search_std` |
+| `TAVILY_API_URL` | Tavily REST base，默认 `https://api.tavily.com`；Hikari/号池使用 `https://<host>/api/tavily` |
 | `TAVILY_API_KEY` | Tavily key |
+| `FIRECRAWL_API_URL` | Firecrawl REST base，默认 `https://api.firecrawl.dev/v2` |
 | `FIRECRAWL_API_KEY` | Firecrawl key |
 
 检查配置是否可用：
@@ -582,12 +594,16 @@ smart-search setup
 smart-search doctor --format json
 ```
 
-Interactive `setup` asks for language first, then configures by capability group:
+Interactive `setup` asks for language first, then configures by capability group. The default UI supports arrow-key navigation, Space to select, and Enter to confirm; only API keys and custom URLs need pasted text:
 
 - `main_search`: at least one of xAI Responses or OpenAI-compatible.
 - `docs_search`: at least one of Exa or Context7.
 - `web_fetch`: at least one of Tavily or Firecrawl.
 - `web_search`: Zhipu / Tavily / Firecrawl as optional reinforcement.
+
+Unchecking an already configured provider does not delete old values. Remove a saved key explicitly with `smart-search config unset KEY`.
+
+If you do not know what to fill on a first install, configure three categories first: `main_search + docs_search + web_fetch`. For OpenAI-compatible examples, use official `https://api.openai.com/v1`; official Tavily uses `https://api.tavily.com`, and pooled endpoints use `https://<host>/api/tavily`.
 
 To open the English wizard directly:
 
@@ -613,13 +629,17 @@ For scripts or copy-paste setup instructions, use non-interactive mode:
 smart-search setup --non-interactive `
   --xai-api-key "your-xai-key" `
   --xai-model "grok-4-fast" `
-  --openai-compatible-api-url "https://your-relay.example.com/v1" `
-  --openai-compatible-api-key "your-relay-key" `
-  --openai-compatible-model "your-relay-model" `
+  --openai-compatible-api-url "https://api.openai.com/v1" `
+  --openai-compatible-api-key "your-openai-key" `
+  --openai-compatible-model "gpt-4.1" `
   --exa-key "your-exa-key" `
+  --tavily-api-url "https://api.tavily.com" `
   --tavily-key "your-tavily-key" `
+  --firecrawl-api-url "https://api.firecrawl.dev/v2" `
   --firecrawl-key "your-firecrawl-key"
 ```
+
+The official Tavily base is `https://api.tavily.com`. For Tavily Hikari or pooled endpoints, the REST base should be `https://<host>/api/tavily`; `setup` normalizes root-host and `/mcp` inputs to `/api/tavily`. `/mcp` is the MCP entrypoint, not the REST base Smart Search should call.
 
 Saved keys are masked when listed:
 
@@ -633,9 +653,9 @@ Advanced users and CI can still use environment variables. Environment variables
 $env:XAI_API_KEY = "your-xai-key"
 $env:XAI_MODEL = "grok-4-fast"
 $env:XAI_TOOLS = "web_search,x_search"
-$env:OPENAI_COMPATIBLE_API_URL = "https://your-relay.example.com/v1"
-$env:OPENAI_COMPATIBLE_API_KEY = "your-relay-key"
-$env:OPENAI_COMPATIBLE_MODEL = "your-relay-model"
+$env:OPENAI_COMPATIBLE_API_URL = "https://api.openai.com/v1"
+$env:OPENAI_COMPATIBLE_API_KEY = "your-openai-key"
+$env:OPENAI_COMPATIBLE_MODEL = "gpt-4.1"
 ```
 
 Legacy `SMART_SEARCH_API_URL` / `SMART_SEARCH_API_KEY` / `SMART_SEARCH_API_MODE` / `SMART_SEARCH_MODEL` still work. `https://api.x.ai/v1` is treated as xAI Responses; other endpoints are treated as OpenAI-compatible. When the new explicit keys are present, xAI Responses and OpenAI-compatible are peer `main_search` providers.
@@ -646,7 +666,9 @@ Optional providers:
 $env:EXA_API_KEY = "your-exa-key"
 $env:CONTEXT7_API_KEY = "your-context7-key"
 $env:ZHIPU_API_KEY = "your-zhipu-key"
+$env:TAVILY_API_URL = "https://api.tavily.com"
 $env:TAVILY_API_KEY = "your-tavily-key"
+$env:FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2"
 $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 ```
 
@@ -690,7 +712,9 @@ Common settings:
 | `ZHIPU_API_KEY` | Zhipu Web Search key |
 | `ZHIPU_API_URL` | Zhipu API base URL, default `https://open.bigmodel.cn/api` |
 | `ZHIPU_SEARCH_ENGINE` | Zhipu search engine, default `search_std` |
+| `TAVILY_API_URL` | Tavily REST base, default `https://api.tavily.com`; Hikari/pooled endpoints use `https://<host>/api/tavily` |
 | `TAVILY_API_KEY` | Tavily key |
+| `FIRECRAWL_API_URL` | Firecrawl REST base, default `https://api.firecrawl.dev/v2` |
 | `FIRECRAWL_API_KEY` | Firecrawl key |
 
 Check configuration:

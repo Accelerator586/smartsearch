@@ -77,8 +77,11 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - If PATH is changed, a new terminal or Codex restart may be needed.
 - In sandboxed runtimes (Codex CLI, containers, CI) where the user's home directory may not be writable from spawned subprocesses, set `SMART_SEARCH_CONFIG_DIR` to an absolute path the runtime can write to. The CLI uses it for both config and logs and skips home-directory fallback.
 - If `smart-search doctor --format json` returns `ok: false`, follow the `error` field's guidance (`smart-search setup` or `smart-search config set KEY VALUE`); do not silently fall back to native web search.
-- Interactive `smart-search setup` is a language-selecting grouped wizard. It guides users through required `main_search`, `docs_search`, and fetch capability, then optional `web_search` reinforcement.
+- Interactive `smart-search setup` is a language-selecting grouped wizard with arrow-key / Space / Enter provider selection. It guides users through required `main_search`, `docs_search`, and fetch capability, then optional `web_search` reinforcement.
+- The setup wizard prints beginner filling examples for official-service and relay/pooled-endpoint minimum profiles. Keep that guidance on stderr so stdout remains parseable JSON/Markdown.
 - Use `smart-search setup --lang en` for an English wizard and `smart-search setup --advanced` only when low-level config keys must be shown one by one.
+- Use `TAVILY_API_URL=https://<host>/api/tavily` for Tavily Hikari / pooled endpoints. Root host and `/mcp` inputs are normalized by setup; `/mcp` itself is not the REST base Smart Search should call.
+- Use `FIRECRAWL_API_URL` only for a Firecrawl-compatible REST base. Official default is `https://api.firecrawl.dev/v2`.
 
 ## Command Patterns
 
@@ -96,6 +99,7 @@ smart-search map "https://docs.example.com" --instructions "Find API reference p
 smart-search setup
 smart-search setup --lang en
 smart-search setup --advanced
+smart-search setup --non-interactive --tavily-api-url "https://api.tavily.com" --tavily-key "key"
 smart-search --version
 smart-search config path --format json
 smart-search config list --format json
@@ -104,6 +108,8 @@ smart-search config set SMART_SEARCH_XAI_TOOLS "web_search,x_search" --format js
 smart-search config set EXA_API_KEY "key" --format json
 smart-search config set CONTEXT7_API_KEY "key" --format json
 smart-search config set ZHIPU_API_KEY "key" --format json
+smart-search config set TAVILY_API_URL "https://api.tavily.com" --format json
+smart-search config set FIRECRAWL_API_URL "https://api.firecrawl.dev/v2" --format json
 smart-search model current --format json
 smart-search model set "model-id" --format json
 smart-search doctor --format json

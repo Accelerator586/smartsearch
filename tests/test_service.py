@@ -28,6 +28,7 @@ def _reset_config(monkeypatch, tmp_path):
         "TAVILY_API_KEY",
         "TAVILY_API_URL",
         "FIRECRAWL_API_KEY",
+        "FIRECRAWL_API_URL",
     ]:
         monkeypatch.delenv(key, raising=False)
     return fake_config_file
@@ -461,6 +462,90 @@ async def test_fetch_reports_network_error_when_providers_fail(monkeypatch):
 
     assert result["ok"] is False
     assert result["error_type"] == "network_error"
+
+
+@pytest.mark.asyncio
+async def test_tavily_custom_base_is_used_for_search_extract_and_map(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+    monkeypatch.setenv("TAVILY_API_URL", "https://tavily.example.com/api/tavily")
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            calls.append((url, json))
+            if url.endswith("/search"):
+                payload = {"results": [{"title": "Search", "url": "https://example.com", "content": "body", "score": 0.9}]}
+            elif url.endswith("/extract"):
+                payload = {"results": [{"raw_content": "# Extracted"}], "failed_results": []}
+            elif url.endswith("/map"):
+                payload = {"base_url": json["url"], "results": ["https://example.com/docs"], "response_time": 0.1}
+            else:
+                payload = {}
+            return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    search_result = await service.call_tavily_search("query", max_results=1)
+    extract_result = await service.call_tavily_extract("https://example.com")
+    map_result = await service.call_tavily_map("https://example.com", timeout=1)
+
+    assert [call[0] for call in calls] == [
+        "https://tavily.example.com/api/tavily/search",
+        "https://tavily.example.com/api/tavily/extract",
+        "https://tavily.example.com/api/tavily/map",
+    ]
+    assert search_result[0]["url"] == "https://example.com"
+    assert extract_result == "# Extracted"
+    assert map_result["ok"] is True
+    assert map_result["results"] == ["https://example.com/docs"]
+
+
+@pytest.mark.asyncio
+async def test_firecrawl_custom_base_is_used_for_search_and_scrape(monkeypatch):
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-test-secret")
+    monkeypatch.setenv("FIRECRAWL_API_URL", "https://firecrawl.example.com/v2")
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            calls.append((url, json))
+            if url.endswith("/search"):
+                payload = {"data": {"web": [{"title": "Result", "url": "https://example.com", "description": "desc"}]}}
+            elif url.endswith("/scrape"):
+                payload = {"data": {"markdown": "# Scraped"}}
+            else:
+                payload = {}
+            return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    search_result = await service.call_firecrawl_search("query", limit=1)
+    scrape_result = await service.call_firecrawl_scrape("https://example.com")
+
+    assert [call[0] for call in calls] == [
+        "https://firecrawl.example.com/v2/search",
+        "https://firecrawl.example.com/v2/scrape",
+    ]
+    assert search_result[0]["url"] == "https://example.com"
+    assert scrape_result == "# Scraped"
 
 
 @pytest.mark.asyncio

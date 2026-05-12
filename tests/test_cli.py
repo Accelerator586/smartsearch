@@ -476,6 +476,14 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "zhipu-secret",
         "--context7-key",
         "ctx-secret",
+        "--tavily-api-url",
+        "pool.example.com",
+        "--tavily-key",
+        "th-test-secret",
+        "--firecrawl-api-url",
+        "firecrawl.example.com/v2",
+        "--firecrawl-key",
+        "firecrawl-secret",
     ])
 
     out = capsys.readouterr().out
@@ -495,12 +503,65 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["SMART_SEARCH_MINIMUM_PROFILE"] == "standard"
     assert saved["ZHIPU_API_KEY"] == "zhipu-secret"
     assert saved["CONTEXT7_API_KEY"] == "ctx-secret"
+    assert saved["TAVILY_API_URL"] == "https://pool.example.com/api/tavily"
+    assert saved["TAVILY_API_KEY"] == "th-test-secret"
+    assert saved["FIRECRAWL_API_URL"] == "https://firecrawl.example.com/v2"
+    assert saved["FIRECRAWL_API_KEY"] == "firecrawl-secret"
     assert "sk-test-secret" not in out
+    assert "th-test-secret" not in out
+
+
+def test_tavily_url_normalization_cases():
+    cases = {
+        "pool.example.com": "https://pool.example.com/api/tavily",
+        "https://pool.example.com": "https://pool.example.com/api/tavily",
+        "https://pool.example.com/mcp": "https://pool.example.com/api/tavily",
+        "https://pool.example.com/api/tavily": "https://pool.example.com/api/tavily",
+        "https://api.tavily.com": "https://api.tavily.com",
+    }
+
+    for raw, expected in cases.items():
+        assert cli._normalize_tavily_api_url(raw) == expected
+    assert cli._normalize_tavily_api_url("https://custom.example.com", hikari=False) == "https://custom.example.com"
+    assert cli._normalize_tavily_flag_api_url("https://custom.example.com", "tvly-key") == "https://custom.example.com"
+    assert cli._normalize_tavily_flag_api_url("https://custom.example.com/mcp", "tvly-key") == "https://custom.example.com/api/tavily"
+    assert cli._normalize_tavily_flag_api_url("https://custom.example.com", "th-key") == "https://custom.example.com/api/tavily"
+
+
+def test_tavily_hikari_key_recommends_hikari_endpoint(monkeypatch):
+    values = {"TAVILY_API_KEY": "th-test-secret"}
+    seen = {}
+
+    def fake_prompt_select(message, choices, default):
+        seen["default"] = default
+        return "hikari"
+
+    monkeypatch.setattr(cli, "_prompt_select", fake_prompt_select)
+    monkeypatch.setattr(cli, "_prompt_value", lambda *args, **kwargs: "https://pool.example.com/mcp")
+
+    cli._prompt_tavily_api_url(values, {}, "en")
+
+    assert seen["default"] == "hikari"
+    assert values["TAVILY_API_URL"] == "https://pool.example.com/api/tavily"
+
+
+def test_tavily_hikari_prompt_shows_beginner_url_example(monkeypatch, capsys):
+    values = {"TAVILY_API_KEY": "th-test-secret"}
+
+    monkeypatch.setattr(cli, "_prompt_select", lambda message, choices, default: "hikari")
+    monkeypatch.setattr(cli, "_prompt_value", lambda *args, **kwargs: "https://pool.example.com")
+
+    cli._prompt_tavily_api_url(values, {}, "zh")
+    captured = capsys.readouterr()
+
+    assert values["TAVILY_API_URL"] == "https://pool.example.com/api/tavily"
+    assert "例如 https://pool.example.com" in captured.err
+    assert "api/tavily" in captured.err
 
 
 def test_setup_guided_zh_groups_minimum_capabilities(monkeypatch, capsys):
     saved = {}
-    answers = iter(["xai", "", "exa", "tavily", "n", "n"])
+    answers = iter(["xai", "", "exa", "tavily", "", "n", "n"])
     secrets = iter(["xai-test-secret", "exa-test-secret", "tavily-test-secret"])
 
     def fake_config_set(key, value):
@@ -521,16 +582,61 @@ def test_setup_guided_zh_groups_minimum_capabilities(monkeypatch, capsys):
     assert saved == {
         "XAI_API_KEY": "xai-test-secret",
         "EXA_API_KEY": "exa-test-secret",
+        "TAVILY_API_URL": "https://api.tavily.com",
         "TAVILY_API_KEY": "tavily-test-secret",
     }
     assert data["minimum_profile_ok"] is True
     assert data["minimum_profile_missing"] == []
     assert captured.out.lstrip().startswith("{")
     assert "Smart Search" in captured.err
+    assert "不知道怎么填" in captured.err
+    assert "main_search + docs_search + web_fetch" in captured.err
     assert "[1/3" in captured.err
     assert "main_search" in captured.err
+    assert "pool.example.com" not in captured.out
     assert "xai-test-secret" not in captured.err
     assert "xai-test-secret" not in captured.out
+
+
+def test_setup_guided_uses_tui_defaults_for_configured_providers(monkeypatch, capsys):
+    current = {
+        "OPENAI_COMPATIBLE_API_URL": "https://relay.example.com/v1",
+        "OPENAI_COMPATIBLE_API_KEY": "relay-old-secret",
+        "CONTEXT7_API_KEY": "ctx-old-secret",
+        "FIRECRAWL_API_KEY": "firecrawl-old-secret",
+        "FIRECRAWL_API_URL": "https://firecrawl.example.com/v2",
+    }
+    saved = {}
+    checkbox_calls = []
+
+    def fake_checkbox(message, choices):
+        selected = [choice["value"] for choice in choices if choice.get("enabled")]
+        checkbox_calls.append((message, selected))
+        return selected
+
+    monkeypatch.setattr(cli, "_checkbox_with_tui", fake_checkbox)
+    monkeypatch.setattr(cli, "_select_with_tui", lambda message, choices, default=None: default)
+    monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+    monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": {**current, **saved}})
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "")
+
+    code = cli.main(["setup", "--lang", "en"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert code == cli.EXIT_OK
+    assert data["minimum_profile_ok"] is True
+    assert saved == {}
+    assert "https://relay.example.com/v1" not in captured.err
+    assert "https://firecrawl.example.com/v2" not in captured.err
+    assert "configured" in captured.err
+    assert checkbox_calls[:3] == [
+        ("Choose main_search providers", ["openai-compatible"]),
+        ("Choose docs_search providers", ["context7"]),
+        ("Choose web_fetch providers", ["firecrawl"]),
+    ]
 
 
 def test_setup_guided_en_reports_missing_minimum(monkeypatch, capsys):
@@ -555,8 +661,33 @@ def test_setup_guided_en_reports_missing_minimum(monkeypatch, capsys):
     assert data["minimum_profile_ok"] is False
     assert data["minimum_profile_missing"] == ["main_search", "docs_search", "web_fetch"]
     assert "Smart Search setup wizard" in captured.err
+    assert "If unsure" in captured.err
+    assert "main_search + docs_search + web_fetch" in captured.err
     assert "[MISSING] main_search primary search" in captured.err
     assert "will fail closed" in captured.err
+    assert "your-relay.example.com" not in captured.out
+
+
+def test_setup_guided_masks_configured_url_defaults(monkeypatch, capsys):
+    current = {
+        "OPENAI_COMPATIBLE_API_URL": "https://private-relay.example.com/v1",
+        "OPENAI_COMPATIBLE_API_KEY": "relay-old-secret",
+    }
+    answers = iter(["openai", "", "", "skip", "skip", "n", "n"])
+    secrets = iter([""])
+
+    monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+    monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": current.copy()})
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
+
+    code = cli.main(["setup", "--lang", "en"])
+    captured = capsys.readouterr()
+
+    assert code == cli.EXIT_OK
+    assert "https://private-relay.example.com/v1" not in captured.err
+    assert "configured, press Enter to keep" in captured.err
 
 
 def test_setup_guided_main_search_can_save_openai_compatible_peer(monkeypatch, capsys):
@@ -761,7 +892,7 @@ def test_setup_interactive_does_not_print_current_secret(monkeypatch, capsys):
     assert "sk-test-secret" not in captured.err
     assert "sk-test-secret" not in prompt_text
     assert "exa-test-secret" not in prompt_text
-    assert "Legacy primary API key optional [configured]" in prompt_text
+    assert "Legacy primary API key optional [configured, press Enter to keep]" in prompt_text
 
 
 def test_setup_advanced_mode_keeps_low_level_prompts(monkeypatch, capsys):

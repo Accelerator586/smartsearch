@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import contextlib
 import getpass
 import json
 from importlib import metadata
@@ -7,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from . import service
 
@@ -45,6 +47,9 @@ MODEL_COMMAND_ALIASES = {
     "set": ["s"],
     "current": ["cur", "c"],
 }
+
+TAVILY_DEFAULT_API_URL = "https://api.tavily.com"
+FIRECRAWL_DEFAULT_API_URL = "https://api.firecrawl.dev/v2"
 
 
 def _get_version() -> str:
@@ -169,6 +174,21 @@ def _write_stderr(text: str) -> None:
     sys.stderr.write(_stream_safe(sys.stderr, text))
 
 
+def _write_panel(text: str, lang: str) -> None:
+    if not _is_interactive_setup_stream():
+        _write_stderr(text)
+        return
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+    except Exception:
+        _write_stderr(text)
+        return
+    console = Console(file=sys.stderr, force_terminal=True)
+    title = _t(lang, "Smart Search 配置", "Smart Search Setup")
+    console.print(Panel(text.strip(), title=title, expand=False, safe_box=True))
+
+
 def _exit_code(data: dict[str, Any]) -> int:
     if data.get("ok", False):
         return EXIT_OK
@@ -204,6 +224,10 @@ def _is_secret_key(key: str) -> bool:
     return "KEY" in upper_key or "TOKEN" in upper_key or "SECRET" in upper_key
 
 
+def _is_private_display_key(key: str) -> bool:
+    return key.upper().endswith("_URL") or key.upper().endswith("_BASE_URL")
+
+
 def _t(lang: str, zh: str, en: str) -> str:
     return zh if lang == "zh" else en
 
@@ -219,6 +243,57 @@ def _display_provider(provider: str, lang: str) -> str:
         "firecrawl": "Firecrawl",
     }
     return names.get(provider, provider)
+
+
+def _with_scheme(url: str) -> str:
+    value = url.strip()
+    if not value:
+        return ""
+    if "://" not in value:
+        return f"https://{value}"
+    return value
+
+
+def _normalize_custom_base_url(url: str) -> str:
+    value = _with_scheme(url).strip()
+    return value.rstrip("/") if value else ""
+
+
+def _normalize_tavily_api_url(url: str, *, hikari: bool = True) -> str:
+    value = _normalize_custom_base_url(url)
+    if not value:
+        return ""
+    parsed = urlsplit(value)
+    host = parsed.netloc.lower()
+    path = parsed.path.rstrip("/")
+    if host == "api.tavily.com":
+        return urlunsplit((parsed.scheme, parsed.netloc, path or "", "", ""))
+    if hikari and path in {"", "/mcp"}:
+        return urlunsplit((parsed.scheme, parsed.netloc, "/api/tavily", "", ""))
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _normalize_tavily_flag_api_url(url: str, api_key: str = "") -> str:
+    value = _normalize_custom_base_url(url)
+    if not value:
+        return ""
+    parsed = urlsplit(value)
+    path = parsed.path.rstrip("/")
+    if path == "/mcp" or _is_tavily_hikari_key(api_key):
+        return _normalize_tavily_api_url(value)
+    return _normalize_tavily_api_url(value, hikari=False)
+
+
+def _normalize_firecrawl_api_url(url: str) -> str:
+    return _normalize_custom_base_url(url)
+
+
+def _is_tavily_hikari_key(api_key: str) -> bool:
+    return api_key.strip().lower().startswith("th-")
+
+
+def _is_interactive_setup_stream() -> bool:
+    return bool(getattr(sys.stdin, "isatty", lambda: False)() and getattr(sys.stderr, "isatty", lambda: False)())
 
 
 def _setup_status_from_values(values: dict[str, str]) -> dict[str, Any]:
@@ -329,7 +404,11 @@ def _prompt_yes_no(prompt: str, default: bool = False) -> bool:
 
 def _prompt_value(key: str, label: str, current: str = "", optional: bool = False, lang: str = "en") -> str:
     suffix = _t(lang, " 可选", " optional") if optional else _t(lang, " 必填", " required")
-    current_display = _t(lang, "已配置", "configured") if current and _is_secret_key(key) else current
+    current_display = (
+        _t(lang, "已配置，回车保留", "configured, press Enter to keep")
+        if current and (_is_secret_key(key) or _is_private_display_key(key))
+        else current
+    )
     if current:
         prompt = f"{label}{suffix} [{current_display}]: "
     else:
@@ -342,10 +421,129 @@ def _prompt_value(key: str, label: str, current: str = "", optional: bool = Fals
     return value or current
 
 
+def _ascii_choice_values(choices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {**choice, "name": _stream_safe(sys.stderr, str(choice.get("name", "")))}
+        for choice in choices
+    ]
+
+
+def _select_with_tui(message: str, choices: list[dict[str, Any]], default: Any = None) -> Any:
+    if not _is_interactive_setup_stream():
+        return None
+    try:
+        from InquirerPy import inquirer
+    except Exception:
+        return None
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            return inquirer.select(
+                message=_stream_safe(sys.stderr, message),
+                choices=_ascii_choice_values(choices),
+                default=default,
+                qmark="",
+                pointer=">",
+                marker=">",
+            ).execute()
+    except (KeyboardInterrupt, EOFError):
+        raise
+    except Exception:
+        return None
+
+
+def _checkbox_with_tui(message: str, choices: list[dict[str, Any]]) -> list[str] | None:
+    if not _is_interactive_setup_stream():
+        return None
+    try:
+        from InquirerPy import inquirer
+    except Exception:
+        return None
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            result = inquirer.checkbox(
+                message=_stream_safe(sys.stderr, message),
+                choices=_ascii_choice_values(choices),
+                instruction="(Up/Down move, Space select, Enter confirm)",
+                qmark="",
+                pointer=">",
+                enabled_symbol="[x]",
+                disabled_symbol="[ ]",
+            ).execute()
+        return [str(item) for item in result]
+    except (KeyboardInterrupt, EOFError):
+        raise
+    except Exception:
+        return None
+
+
+def _provider_choices(providers: list[str], selected: list[str], lang: str) -> list[dict[str, Any]]:
+    selected_set = set(selected)
+    return [
+        {"name": _display_provider(provider, lang), "value": provider, "enabled": provider in selected_set}
+        for provider in providers
+    ]
+
+
+def _prompt_provider_multi_select(
+    message: str,
+    providers: list[str],
+    default_selected: list[str],
+    lang: str,
+) -> list[str]:
+    tui_value = _checkbox_with_tui(message, _provider_choices(providers, default_selected, lang))
+    if tui_value is not None:
+        return [provider for provider in providers if provider in set(tui_value)]
+
+    default_text = ",".join(default_selected) if default_selected else "skip"
+    _write_stderr(f"{message} [{'/'.join(providers)}/skip] ({default_text}): ")
+    raw = input("").strip().lower()
+    if not raw:
+        return [provider for provider in providers if provider in set(default_selected)]
+    aliases = {
+        "跳过": "skip",
+        "无": "skip",
+        "n": "skip",
+        "no": "skip",
+        "否": "skip",
+        "都配": "all",
+        "全部": "all",
+        "两个": "all",
+        "both": "all",
+        "all": "all",
+        "xai": "xai-responses",
+        "openai": "openai-compatible",
+        "ctx7": "context7",
+        "context": "context7",
+    }
+    tokens = [aliases.get(part.strip(), part.strip()) for part in raw.replace("+", ",").replace(";", ",").split(",")]
+    if len(tokens) == 1 and " " in tokens[0]:
+        tokens = [aliases.get(part.strip(), part.strip()) for part in tokens[0].split()]
+    if "skip" in tokens or "none" in tokens:
+        return []
+    if "all" in tokens:
+        return providers
+    selected = [provider for provider in providers if provider in tokens]
+    return selected if selected else [provider for provider in providers if provider in set(default_selected)]
+
+
+def _prompt_select(message: str, choices: list[dict[str, Any]], default: str) -> str:
+    tui_value = _select_with_tui(message, choices, default)
+    if tui_value is not None:
+        return str(tui_value)
+    choice_values = [str(choice["value"]) for choice in choices]
+    _write_stderr(f"{message} [{'/'.join(choice_values)}] ({default}): ")
+    value = input("").strip().lower()
+    return value if value in set(choice_values) else default
+
+
 def _select_setup_language(lang: str = "") -> str:
     if lang in {"zh", "en"}:
         return lang
-    answer = _prompt_choice("Language / 语言 [zh/en] (zh): ", "zh").strip().lower()
+    choices = [
+        {"name": "中文", "value": "zh"},
+        {"name": "English", "value": "en"},
+    ]
+    answer = _prompt_select("Language / 语言", choices, "zh").strip().lower()
     if answer in {"en", "english"}:
         return "en"
     return "zh"
@@ -368,7 +566,7 @@ def _setup_choice(prompt: str, choices: set[str], default: str) -> str:
 def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: str) -> None:
     status = _setup_status_from_values(_merge_setup_values(current, values))
     configured = status["main_search"]["configured"]
-    default = "keep" if configured else "xai"
+    default_selected = configured or ["xai-responses"]
     _write_stderr(
         _t(
             lang,
@@ -384,18 +582,17 @@ def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: s
                 "Note: legacy primary search config is available; consider migrating to XAI_* or OPENAI_COMPATIBLE_* later.\n",
             )
         )
-    choice = _setup_choice(
+    selected = _prompt_provider_multi_select(
         _t(
             lang,
-            f"选择主搜索 provider [keep/xai/openai/both/skip] ({default}): ",
-            f"Choose main search provider [keep/xai/openai/both/skip] ({default}): ",
+            "选择 main_search provider",
+            "Choose main_search providers",
         ),
-        {"keep", "xai", "openai", "both", "skip"},
-        default,
+        ["xai-responses", "openai-compatible"],
+        default_selected,
+        lang,
     )
-    if choice in {"keep", "skip"}:
-        return
-    if choice in {"xai", "both"}:
+    if "xai-responses" in selected:
         values["XAI_API_KEY"] = _prompt_value("XAI_API_KEY", "xAI API key", current.get("XAI_API_KEY", ""), lang=lang)
         values["XAI_MODEL"] = _prompt_value(
             "XAI_MODEL",
@@ -404,10 +601,14 @@ def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: s
             optional=True,
             lang=lang,
         )
-    if choice in {"openai", "both"}:
+    if "openai-compatible" in selected:
         values["OPENAI_COMPATIBLE_API_URL"] = _prompt_value(
             "OPENAI_COMPATIBLE_API_URL",
-            _t(lang, "OpenAI-compatible API 地址", "OpenAI-compatible API URL"),
+            _t(
+                lang,
+                "OpenAI-compatible API 地址（示例: https://api.openai.com/v1）",
+                "OpenAI-compatible API URL (example: https://api.openai.com/v1)",
+            ),
             current.get("OPENAI_COMPATIBLE_API_URL", ""),
             lang=lang,
         )
@@ -428,7 +629,7 @@ def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: s
 
 def _prompt_docs_search(values: dict[str, str], current: dict[str, str], lang: str) -> None:
     status = _setup_status_from_values(_merge_setup_values(current, values))
-    default = "keep" if status["docs_search"]["configured"] else "exa"
+    default_selected = status["docs_search"]["configured"] or ["exa"]
     _write_stderr(
         _t(
             lang,
@@ -436,20 +637,19 @@ def _prompt_docs_search(values: dict[str, str], current: dict[str, str], lang: s
             "\n[2/3 Required] docs_search documentation search\nPurpose: official docs, SDKs, APIs, frameworks, and library references.\nRecommended: Exa is broader; Context7 is more documentation-focused.\n",
         )
     )
-    choice = _setup_choice(
+    selected = _prompt_provider_multi_select(
         _t(
             lang,
-            f"选择文档搜索 provider [keep/exa/context7/both/skip] ({default}): ",
-            f"Choose docs provider [keep/exa/context7/both/skip] ({default}): ",
+            "选择 docs_search provider",
+            "Choose docs_search providers",
         ),
-        {"keep", "exa", "context7", "both", "skip"},
-        default,
+        ["exa", "context7"],
+        default_selected,
+        lang,
     )
-    if choice in {"keep", "skip"}:
-        return
-    if choice in {"exa", "both"}:
+    if "exa" in selected:
         values["EXA_API_KEY"] = _prompt_value("EXA_API_KEY", "Exa API key", current.get("EXA_API_KEY", ""), lang=lang)
-    if choice in {"context7", "both"}:
+    if "context7" in selected:
         values["CONTEXT7_API_KEY"] = _prompt_value(
             "CONTEXT7_API_KEY",
             "Context7 API key",
@@ -458,9 +658,88 @@ def _prompt_docs_search(values: dict[str, str], current: dict[str, str], lang: s
         )
 
 
+def _prompt_tavily_api_url(values: dict[str, str], current: dict[str, str], lang: str) -> None:
+    current_url = current.get("TAVILY_API_URL", "")
+    tavily_key = values.get("TAVILY_API_KEY") or current.get("TAVILY_API_KEY", "")
+    if current_url:
+        default_choice = "current"
+    elif _is_tavily_hikari_key(tavily_key):
+        default_choice = "hikari"
+    else:
+        default_choice = "official"
+    choices = []
+    if current_url:
+        choices.append({"name": _t(lang, "保留当前地址（已配置）", "Keep current URL (configured)"), "value": "current"})
+    choices.extend([
+        {"name": _t(lang, "官方 Tavily (https://api.tavily.com)", "Official Tavily (https://api.tavily.com)"), "value": "official"},
+        {"name": _t(lang, "Tavily Hikari / 号池", "Tavily Hikari / pooled endpoint"), "value": "hikari"},
+        {"name": _t(lang, "自定义 Tavily REST base", "Custom Tavily REST base"), "value": "custom"},
+    ])
+    choice = _prompt_select(_t(lang, "选择 Tavily endpoint", "Choose Tavily endpoint"), choices, default_choice)
+    if choice == "current":
+        return
+    if choice == "official":
+        values["TAVILY_API_URL"] = TAVILY_DEFAULT_API_URL
+        return
+    if choice == "hikari":
+        _write_stderr(
+            _t(
+                lang,
+                "号池地址填服务商给你的域名或 URL，例如 https://pool.example.com 或 https://pool.example.com/mcp；setup 会保存为 https://pool.example.com/api/tavily。\n",
+                "For pooled endpoints, paste the provider domain or URL, for example https://pool.example.com or https://pool.example.com/mcp; setup saves it as https://pool.example.com/api/tavily.\n",
+            )
+        )
+    label = _t(
+        lang,
+        "Tavily REST 地址",
+        "Tavily REST URL",
+    )
+    raw = _prompt_value("TAVILY_API_URL", label, current_url, optional=False, lang=lang)
+    normalized = _normalize_tavily_api_url(raw) if choice == "hikari" else _normalize_tavily_api_url(raw, hikari=False)
+    if normalized:
+        values["TAVILY_API_URL"] = normalized
+        if normalized != raw.rstrip("/"):
+            _write_stderr(_t(lang, f"已规范化 Tavily REST base: {normalized}\n", f"Normalized Tavily REST base: {normalized}\n"))
+
+
+def _prompt_firecrawl_api_url(values: dict[str, str], current: dict[str, str], lang: str) -> None:
+    current_url = current.get("FIRECRAWL_API_URL", "")
+    choices = []
+    if current_url:
+        choices.append({"name": _t(lang, "保留当前地址（已配置）", "Keep current URL (configured)"), "value": "current"})
+    choices.extend([
+        {
+            "name": _t(
+                lang,
+                "官方 Firecrawl (https://api.firecrawl.dev/v2)",
+                "Official Firecrawl (https://api.firecrawl.dev/v2)",
+            ),
+            "value": "official",
+        },
+        {"name": _t(lang, "自定义 Firecrawl REST base", "Custom Firecrawl REST base"), "value": "custom"},
+    ])
+    default_choice = "current" if current_url else "official"
+    choice = _prompt_select(_t(lang, "选择 Firecrawl endpoint", "Choose Firecrawl endpoint"), choices, default_choice)
+    if choice == "current":
+        return
+    if choice == "official":
+        values["FIRECRAWL_API_URL"] = FIRECRAWL_DEFAULT_API_URL
+        return
+    raw = _prompt_value(
+        "FIRECRAWL_API_URL",
+        _t(lang, "Firecrawl 自定义 REST base", "Firecrawl custom REST base"),
+        current_url,
+        optional=False,
+        lang=lang,
+    )
+    normalized = _normalize_firecrawl_api_url(raw)
+    if normalized:
+        values["FIRECRAWL_API_URL"] = normalized
+
+
 def _prompt_web_fetch(values: dict[str, str], current: dict[str, str], lang: str) -> None:
     status = _setup_status_from_values(_merge_setup_values(current, values))
-    default = "keep" if status["web_fetch"]["configured"] else "tavily"
+    default_selected = status["web_fetch"]["configured"] or ["tavily"]
     _write_stderr(
         _t(
             lang,
@@ -468,26 +747,27 @@ def _prompt_web_fetch(values: dict[str, str], current: dict[str, str], lang: str
             "\n[3/3 Required] web_fetch page fetch\nPurpose: extract known URLs; required for high-risk fact checks.\nRecommended: Tavily first; Firecrawl as fetch fallback.\n",
         )
     )
-    choice = _setup_choice(
+    selected = _prompt_provider_multi_select(
         _t(
             lang,
-            f"选择网页抓取 provider [keep/tavily/firecrawl/both/skip] ({default}): ",
-            f"Choose fetch provider [keep/tavily/firecrawl/both/skip] ({default}): ",
+            "选择 web_fetch provider",
+            "Choose web_fetch providers",
         ),
-        {"keep", "tavily", "firecrawl", "both", "skip"},
-        default,
+        ["tavily", "firecrawl"],
+        default_selected,
+        lang,
     )
-    if choice in {"keep", "skip"}:
-        return
-    if choice in {"tavily", "both"}:
+    if "tavily" in selected:
         values["TAVILY_API_KEY"] = _prompt_value("TAVILY_API_KEY", "Tavily API key", current.get("TAVILY_API_KEY", ""), lang=lang)
-    if choice in {"firecrawl", "both"}:
+        _prompt_tavily_api_url(values, current, lang)
+    if "firecrawl" in selected:
         values["FIRECRAWL_API_KEY"] = _prompt_value(
             "FIRECRAWL_API_KEY",
             "Firecrawl API key",
             current.get("FIRECRAWL_API_KEY", ""),
             lang=lang,
         )
+        _prompt_firecrawl_api_url(values, current, lang)
 
 
 def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str], lang: str) -> None:
@@ -498,7 +778,14 @@ def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str
             "\n[Optional] web_search web reinforcement\nPurpose: Chinese, domestic, current, or domain-filtered source discovery.\nRecommended: configure Zhipu for Chinese/current scenarios.\n",
         )
     )
-    if _prompt_yes_no(_t(lang, "是否配置 Zhipu API key?", "Configure Zhipu API key?"), default=False):
+    default_selected = ["zhipu"] if current.get("ZHIPU_API_KEY") else []
+    selected = _prompt_provider_multi_select(
+        _t(lang, "选择可选 web_search 增强", "Choose optional web_search reinforcement"),
+        ["zhipu"],
+        default_selected,
+        lang,
+    )
+    if "zhipu" in selected:
         values["ZHIPU_API_KEY"] = _prompt_value("ZHIPU_API_KEY", "Zhipu API key", current.get("ZHIPU_API_KEY", ""), lang=lang)
     if _prompt_yes_no(_t(lang, "是否调整验证/兜底默认值?", "Adjust validation/fallback defaults?"), default=False):
         values["SMART_SEARCH_VALIDATION_LEVEL"] = _prompt_value(
@@ -524,15 +811,46 @@ def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str
         )
 
 
-def _run_guided_setup_prompts(values: dict[str, str], current: dict[str, str], lang: str) -> None:
-    config_file = service.config_path()["config_file"]
+def _write_setup_keep_note(lang: str) -> None:
     _write_stderr(
         _t(
             lang,
-            f"\nSmart Search 配置向导\n配置文件: {config_file}\n\n目标: standard 最低可用配置\n说明: provider 选择处空回车 = 使用括号里的默认项；key 输入处空回车 = 保留当前值或跳过；API Key 输入不会显示。\n\n最低要求:\n  [必选] main_search 主搜索: xAI Responses 或 OpenAI-compatible 至少一个\n  [必选] docs_search 文档/副搜索: Exa 或 Context7 至少一个\n  [必选] web_fetch 网页抓取: Tavily 或 Firecrawl 至少一个\n  [可选] web_search 网页补强: Zhipu / Tavily / Firecrawl\n",
-            f"\nSmart Search setup wizard\nConfig file: {config_file}\n\nGoal: standard minimum profile\nNotes: empty Enter on provider choices uses the shown default; empty Enter on key prompts keeps the current value or skips; API key input is hidden.\n\nMinimum requirements:\n  [required] main_search: at least one of xAI Responses or OpenAI-compatible\n  [required] docs_search: at least one of Exa or Context7\n  [required] web_fetch: at least one of Tavily or Firecrawl\n  [optional] web_search reinforcement: Zhipu / Tavily / Firecrawl\n",
+            "\n提示: setup 不会删除旧配置；删除请运行 `smart-search config unset KEY`。\n",
+            "\nNote: setup does not delete saved values; use `smart-search config unset KEY` to remove one.\n",
         )
     )
+
+
+def _write_setup_examples(lang: str) -> None:
+    _write_stderr(
+        _t(
+            lang,
+            "\n不知道怎么填: 先配齐 main_search + docs_search + web_fetch。\n"
+            "  main_search: xAI Responses，或 OpenAI-compatible（示例: https://api.openai.com/v1）\n"
+            "  docs_search: Exa；没有 Exa 就选 Context7。\n"
+            "  web_fetch: Tavily 官方地址是 https://api.tavily.com；号池填 https://<host>/api/tavily。\n"
+            "  key 都填你自己控制台里的；Zhipu / Firecrawl 可以之后再补。\n",
+            "\nIf unsure: first configure main_search + docs_search + web_fetch.\n"
+            "  main_search: xAI Responses, or OpenAI-compatible (example: https://api.openai.com/v1)\n"
+            "  docs_search: Exa, or Context7 if you do not have Exa.\n"
+            "  web_fetch: official Tavily endpoint is https://api.tavily.com; pooled endpoints use https://<host>/api/tavily.\n"
+            "  Use keys from your own provider consoles. Zhipu / Firecrawl can be added later.\n",
+        )
+    )
+
+
+def _run_guided_setup_prompts(values: dict[str, str], current: dict[str, str], lang: str) -> None:
+    config_file = service.config_path()["config_file"]
+    _write_panel(
+        _t(
+            lang,
+            f"\nSmart Search 配置向导\n配置文件: {config_file}\n\n目标: standard 最低可用配置\n操作: 方向键移动，空格勾选，回车确认；API key 输入不显示。\n最低要求: main_search + docs_search + web_fetch 各至少一个 provider。\n",
+            f"\nSmart Search setup wizard\nConfig file: {config_file}\n\nGoal: standard minimum profile\nKeys: move with arrow keys, select with Space, confirm with Enter; API key input is hidden.\nMinimum: at least one provider in each of main_search + docs_search + web_fetch.\n",
+        ),
+        lang,
+    )
+    _write_setup_keep_note(lang)
+    _write_setup_examples(lang)
     _write_setup_status(_setup_status_from_values(_merge_setup_values(current, values)), lang)
     _prompt_main_search(values, current, lang)
     _prompt_docs_search(values, current, lang)
@@ -567,13 +885,20 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("EXA_API_KEY", "Exa API key", True),
         ("CONTEXT7_API_KEY", "Context7 API key", True),
         ("ZHIPU_API_KEY", "Zhipu API key", True),
+        ("TAVILY_API_URL", "Tavily API URL", True),
         ("TAVILY_API_KEY", "Tavily API key", True),
+        ("FIRECRAWL_API_URL", "Firecrawl API URL", True),
         ("FIRECRAWL_API_KEY", "Firecrawl API key", True),
     ]
     for key, label, optional in prompts:
         if values[key]:
             continue
-        values[key] = _prompt_value(key, label, current.get(key, ""), optional=optional, lang=lang)
+        value = _prompt_value(key, label, current.get(key, ""), optional=optional, lang=lang)
+        if key == "TAVILY_API_URL":
+            value = _normalize_tavily_api_url(value)
+        elif key == "FIRECRAWL_API_URL":
+            value = _normalize_firecrawl_api_url(value)
+        values[key] = value
 
 
 async def _run_async(args: argparse.Namespace) -> int:
@@ -693,7 +1018,9 @@ def _run_setup(args: argparse.Namespace) -> int:
         "EXA_API_KEY": args.exa_key,
         "CONTEXT7_API_KEY": args.context7_key,
         "ZHIPU_API_KEY": args.zhipu_key,
+        "TAVILY_API_URL": _normalize_tavily_flag_api_url(args.tavily_api_url, args.tavily_key),
         "TAVILY_API_KEY": args.tavily_key,
+        "FIRECRAWL_API_URL": _normalize_firecrawl_api_url(args.firecrawl_api_url),
         "FIRECRAWL_API_KEY": args.firecrawl_key,
     }
 
@@ -898,7 +1225,9 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--exa-key", default="", help="Save EXA_API_KEY.")
     setup_parser.add_argument("--context7-key", default="", help="Save CONTEXT7_API_KEY.")
     setup_parser.add_argument("--zhipu-key", default="", help="Save ZHIPU_API_KEY.")
+    setup_parser.add_argument("--tavily-api-url", default="", help="Save TAVILY_API_URL.")
     setup_parser.add_argument("--tavily-key", default="", help="Save TAVILY_API_KEY.")
+    setup_parser.add_argument("--firecrawl-api-url", default="", help="Save FIRECRAWL_API_URL.")
     setup_parser.add_argument("--firecrawl-key", default="", help="Save FIRECRAWL_API_KEY.")
     _add_format_args(setup_parser)
 

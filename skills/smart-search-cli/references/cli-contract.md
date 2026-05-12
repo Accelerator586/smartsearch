@@ -23,7 +23,7 @@
 - `smart-search context7-docs LIBRARY_ID QUERY [--format json|markdown] [--output PATH]`
 - `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown] [--output PATH]`
 - `smart-search doctor [--format json|markdown] [--output PATH]`
-- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--tavily-key KEY] [--firecrawl-key KEY] [--format json|markdown] [--output PATH]`
+- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--tavily-api-url URL] [--tavily-key KEY] [--firecrawl-api-url URL] [--firecrawl-key KEY] [--format json|markdown] [--output PATH]`
 - `smart-search config path [--format json|markdown] [--output PATH]`
 - `smart-search config list [--format json|markdown] [--output PATH]`
 - `smart-search config set KEY VALUE [--format json|markdown] [--output PATH]`
@@ -99,11 +99,31 @@ Setup and config output should include `ok` and `config_file`. Saved API keys mu
 Interactive setup behavior:
 
 - Default `smart-search setup` asks for `zh` or `en`, then shows a grouped wizard.
+- The grouped wizard should use an arrow-key / Space / Enter selector when the
+  packaged TUI dependencies are available, with a text fallback for non-TTY
+  and tests.
 - Required groups are `main_search`, `docs_search`, and `web_fetch`; `web_search` is optional reinforcement.
 - `--lang zh|en` skips the language question.
 - `--advanced` shows low-level config keys one by one for compatibility with older setup behavior.
 - `--non-interactive` keeps script behavior and only saves values passed as flags.
+- Unchecking a configured provider must not delete existing config values; use
+  `smart-search config unset KEY` for deletion.
 - Interactive output should summarize `minimum_profile_ok`, missing required capabilities, and next-step commands.
+- Beginner filling examples for official-service and relay/pooled-endpoint
+  minimum profiles must appear in the grouped wizard on stderr, not stdout.
+  They must cover `main_search`, `docs_search`, and `web_fetch` so a first-time
+  user can satisfy the minimum profile without understanding provider internals.
+
+Provider endpoint setup:
+
+- `TAVILY_API_URL` defaults to `https://api.tavily.com`.
+- Tavily Hikari / pooled endpoints must use the REST facade base
+  `https://<host>/api/tavily`; `/mcp` is not a REST provider base.
+- Setup normalizes a Hikari root host or `/mcp` URL to
+  `https://<host>/api/tavily`; an existing `/api/tavily` base and official
+  `https://api.tavily.com` remain unchanged.
+- `FIRECRAWL_API_URL` defaults to `https://api.firecrawl.dev/v2`; custom REST
+  bases are saved with scheme normalization and no trailing slash.
 
 Search timeout output uses `ok=false`, `error_type=network_error`, includes the timeout seconds in `error`, keeps `query`, `content`, `sources`, `sources_count`, `primary_sources`, `primary_sources_count`, `extra_sources`, and `extra_sources_count`, and exits with code `4`.
 
