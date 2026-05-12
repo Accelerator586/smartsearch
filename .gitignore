@@ -13,4 +13,8 @@ logs/
 .pytest_cache/
 node_modules/
 *.tgz
+.agent/
+.agents/
 .claude/
+.codex/
+.trellis/
