@@ -8,9 +8,11 @@ import httpx
 
 from .config import config
 from .logger import log_info
+from .providers.context7 import Context7Provider
 from .providers.exa import ExaSearchProvider
 from .providers.openai_compatible import OpenAICompatibleSearchProvider
 from .providers.xai_responses import XAIResponsesSearchProvider
+from .providers.zhipu import ZhipuWebSearchProvider
 from .sources import merge_sources, new_session_id, split_answer_and_sources
 
 
@@ -20,10 +22,344 @@ SOURCE_PROVENANCE_WARNING = (
     "extra_sources are retrieved in parallel and are not automatically used to verify generated content; "
     "use fetch on key URLs for claim-level evidence."
 )
+MINIMUM_PROFILE_ERROR = (
+    "最低配置不满足：必须至少配置 main_search、docs_search、web_fetch 三类能力各一个 provider。"
+)
+DOCS_INTENT_KEYWORDS = {
+    "api",
+    "sdk",
+    "library",
+    "framework",
+    "docs",
+    "documentation",
+    "reference",
+    "react",
+    "next.js",
+    "vue",
+    "python",
+    "prisma",
+    "langchain",
+    "openai",
+    "context7",
+    "接口",
+    "文档",
+    "库",
+    "框架",
+    "函数",
+    "参数",
+    "配置",
+}
+ZH_CURRENT_KEYWORDS = {
+    "今天",
+    "最新",
+    "国内",
+    "中国",
+    "中文",
+    "政策",
+    "新闻",
+    "实时",
+    "刚刚",
+    "本周",
+    "本月",
+}
+FETCH_INTENT_KEYWORDS = {"http://", "https://"}
+MAIN_SEARCH_FALLBACK_CHAIN = ["xai-responses", "openai-compatible"]
+MAIN_SEARCH_PROVIDER_ALIASES = {
+    "xai-responses": {"xai-responses", "xai", "grok", "grok-web-tools"},
+    "openai-compatible": {"openai-compatible", "openai", "chat-completions", "primary"},
+}
 
 
 def _elapsed_ms(start: float) -> float:
     return round((time.time() - start) * 1000, 2)
+
+
+def _empty_search_result(
+    start: float,
+    session_id: str,
+    query: str,
+    error_type: str,
+    error: str,
+    primary_api_mode: str = "",
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": False,
+        "error_type": error_type,
+        "error": error,
+        "session_id": session_id,
+        "query": query,
+        "primary_api_mode": primary_api_mode or config.smart_search_api_mode,
+        "content": "",
+        "sources": [],
+        "sources_count": 0,
+        "primary_sources": [],
+        "primary_sources_count": 0,
+        "extra_sources": [],
+        "extra_sources_count": 0,
+        "source_warning": "",
+        "routing_decision": {},
+        "providers_used": [],
+        "provider_attempts": [],
+        "fallback_used": False,
+        "validation_level": "",
+        "elapsed_ms": _elapsed_ms(start),
+    }
+    if extra:
+        data.update(extra)
+    return data
+
+
+def _attempt(
+    capability: str,
+    provider: str,
+    status: str,
+    start: float,
+    result_count: int = 0,
+    error_type: str = "",
+    error: str = "",
+) -> dict[str, Any]:
+    return {
+        "capability": capability,
+        "provider": provider,
+        "status": status,
+        "error_type": error_type,
+        "error": error,
+        "elapsed_ms": _elapsed_ms(start),
+        "result_count": result_count,
+    }
+
+
+def _normalize_source_results(results: list[dict] | None, provider: str) -> list[dict]:
+    normalized: list[dict] = []
+    for item in results or []:
+        url = (item.get("url") or item.get("link") or "").strip()
+        if not url:
+            continue
+        out = {"url": url, "provider": item.get("provider") or provider}
+        title = (item.get("title") or "").strip()
+        if title:
+            out["title"] = title
+        desc = (item.get("description") or item.get("content") or item.get("snippet") or "").strip()
+        if desc:
+            out["description"] = desc
+        published = item.get("published_date") or item.get("publishedDate") or item.get("publish_date")
+        if published:
+            out["published_date"] = published
+        source = item.get("source") or item.get("media")
+        if source:
+            out["source"] = source
+        normalized.append(out)
+    return normalized
+
+
+def _provider_names_from_attempts(attempts: list[dict]) -> list[str]:
+    names: list[str] = []
+    for attempt in attempts:
+        provider = attempt.get("provider")
+        if attempt.get("status") == "ok" and provider and provider not in names:
+            names.append(provider)
+    return names
+
+
+def _fallback_used(attempts: list[dict]) -> bool:
+    by_capability: dict[str, int] = {}
+    for attempt in attempts:
+        capability = attempt.get("capability", "")
+        if attempt.get("status") in {"ok", "empty", "error"}:
+            by_capability[capability] = by_capability.get(capability, 0) + 1
+    return any(count > 1 for count in by_capability.values())
+
+
+def _is_docs_intent(query: str) -> bool:
+    q = query.lower()
+    return any(keyword in q for keyword in DOCS_INTENT_KEYWORDS)
+
+
+def _is_zh_current_intent(query: str) -> bool:
+    return any(keyword in query for keyword in ZH_CURRENT_KEYWORDS)
+
+
+def _is_fetch_intent(query: str) -> bool:
+    q = query.lower()
+    return any(keyword in q for keyword in FETCH_INTENT_KEYWORDS)
+
+
+def get_capability_status() -> dict[str, Any]:
+    main_configured = _configured_main_search_provider_ids()
+    status = {
+        "main_search": {
+            "configured": main_configured,
+            "fallback_chain": MAIN_SEARCH_FALLBACK_CHAIN,
+            "ok": bool(main_configured),
+        },
+        "web_search": {
+            "configured": [
+                name
+                for name, enabled in [
+                    ("zhipu", bool(config.zhipu_api_key)),
+                    ("tavily", bool(config.tavily_api_key)),
+                    ("firecrawl", bool(config.firecrawl_api_key)),
+                ]
+                if enabled
+            ],
+            "fallback_chain": ["zhipu", "tavily", "firecrawl"],
+        },
+        "docs_search": {
+            "configured": [
+                name
+                for name, enabled in [
+                    ("exa", bool(config.exa_api_key)),
+                    ("context7", bool(config.context7_api_key)),
+                ]
+                if enabled
+            ],
+            "fallback_chain": ["exa", "context7"],
+        },
+        "web_fetch": {
+            "configured": [
+                name
+                for name, enabled in [
+                    ("tavily", bool(config.tavily_api_key)),
+                    ("firecrawl", bool(config.firecrawl_api_key)),
+                ]
+                if enabled
+            ],
+            "fallback_chain": ["tavily", "firecrawl"],
+        },
+    }
+    for capability in ("web_search", "docs_search", "web_fetch"):
+        status[capability]["ok"] = bool(status[capability]["configured"])
+    return status
+
+
+def _minimum_profile_result(profile: str, capability_status: dict[str, Any]) -> dict[str, Any]:
+    required = [] if profile == "off" else ["main_search", "docs_search", "web_fetch"]
+    missing = [capability for capability in required if not capability_status.get(capability, {}).get("ok")]
+    return {
+        "ok": not missing,
+        "error_type": "config_error" if missing else "",
+        "error": f"{MINIMUM_PROFILE_ERROR} 缺失能力: {', '.join(missing)}" if missing else "",
+        "profile": profile,
+        "required": required,
+        "missing": missing,
+        "capability_status": capability_status,
+    }
+
+
+def validate_minimum_profile() -> dict[str, Any]:
+    try:
+        profile = config.minimum_profile
+    except ValueError as e:
+        return {"ok": False, "error_type": "parameter_error", "error": str(e), "missing": []}
+    return _minimum_profile_result(profile, get_capability_status())
+
+
+def _parse_provider_filter(providers: str = "auto") -> set[str] | None:
+    if not providers or providers.strip().lower() == "auto":
+        return None
+    return {item.strip().lower() for item in providers.split(",") if item.strip()}
+
+
+def _provider_allowed(provider_id: str, provider_filter: set[str] | None) -> bool:
+    if provider_filter is None:
+        return True
+    aliases = MAIN_SEARCH_PROVIDER_ALIASES.get(provider_id, {provider_id})
+    return bool(provider_filter.intersection(aliases))
+
+
+def _configured_main_search_provider_ids() -> list[str]:
+    configured: set[str] = set()
+
+    if config.xai_api_key:
+        configured.add("xai-responses")
+    if config.openai_compatible_api_url and config.openai_compatible_api_key:
+        configured.add("openai-compatible")
+
+    legacy_url = config._get_config_value("SMART_SEARCH_API_URL")
+    legacy_key = config._get_config_value("SMART_SEARCH_API_KEY")
+    if legacy_url and legacy_key:
+        try:
+            legacy_mode = config.resolve_primary_api_mode(legacy_url)
+        except ValueError:
+            legacy_mode = "chat-completions"
+        configured.add("xai-responses" if legacy_mode == "xai-responses" else "openai-compatible")
+
+    return [provider for provider in MAIN_SEARCH_FALLBACK_CHAIN if provider in configured]
+
+
+def _main_search_provider_configs(model_override: str = "", providers: str = "auto") -> list[dict[str, Any]]:
+    provider_filter = _parse_provider_filter(providers)
+    by_provider: dict[str, dict[str, Any]] = {}
+
+    if config.xai_api_key:
+        by_provider["xai-responses"] = {
+            "provider": "xai-responses",
+            "mode": "xai-responses",
+            "api_url": config.xai_api_url,
+            "api_key": config.xai_api_key,
+            "model": model_override or config.xai_model,
+            "tools": config.parse_xai_tools(config.xai_tools_raw),
+            "source": "XAI_*",
+        }
+
+    if config.openai_compatible_api_url and config.openai_compatible_api_key:
+        by_provider["openai-compatible"] = {
+            "provider": "openai-compatible",
+            "mode": "chat-completions",
+            "api_url": config.openai_compatible_api_url,
+            "api_key": config.openai_compatible_api_key,
+            "model": model_override or config.openai_compatible_model,
+            "tools": [],
+            "source": "OPENAI_COMPATIBLE_*",
+        }
+
+    legacy_url = config._get_config_value("SMART_SEARCH_API_URL")
+    legacy_key = config._get_config_value("SMART_SEARCH_API_KEY")
+    if legacy_url and legacy_key:
+        legacy_mode = config.resolve_primary_api_mode(legacy_url)
+        provider_id = "xai-responses" if legacy_mode == "xai-responses" else "openai-compatible"
+        if provider_id not in by_provider:
+            legacy_model = model_override or config.apply_model_suffix_for_url(config._base_model_value(), legacy_url)
+            by_provider[provider_id] = {
+                "provider": provider_id,
+                "mode": legacy_mode,
+                "api_url": legacy_url,
+                "api_key": legacy_key,
+                "model": legacy_model,
+                "tools": config.parse_xai_tools(config.smart_search_xai_tools_raw) if legacy_mode == "xai-responses" else [],
+                "source": "SMART_SEARCH_API_*",
+            }
+
+    return [
+        by_provider[provider]
+        for provider in MAIN_SEARCH_FALLBACK_CHAIN
+        if provider in by_provider and _provider_allowed(provider, provider_filter)
+    ]
+
+
+def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str) -> list[Any]:
+    selected = provider_configs if fallback != "off" else provider_configs[:1]
+    providers: list[Any] = []
+    for provider_config in selected:
+        if provider_config["provider"] == "xai-responses":
+            providers.append(
+                XAIResponsesSearchProvider(
+                    provider_config["api_url"],
+                    provider_config["api_key"],
+                    provider_config["model"],
+                    provider_config["tools"],
+                )
+            )
+        else:
+            providers.append(
+                OpenAICompatibleSearchProvider(
+                    provider_config["api_url"],
+                    provider_config["api_key"],
+                    provider_config["model"],
+                )
+            )
+    return providers
 
 
 async def fetch_available_models(api_url: str, api_key: str) -> list[str]:
@@ -100,6 +436,140 @@ def extra_results_to_sources(
             sources.append(item)
 
     return sources
+
+
+async def _run_web_fetch_fallback(url: str, fallback: str = "auto") -> tuple[dict[str, Any] | None, list[dict]]:
+    attempts: list[dict] = []
+    providers = []
+    if config.tavily_api_key:
+        providers.append("tavily")
+    if config.firecrawl_api_key:
+        providers.append("firecrawl")
+    if fallback == "off":
+        providers = providers[:1]
+
+    for provider in providers:
+        start = time.time()
+        try:
+            if provider == "tavily":
+                content = await call_tavily_extract(url)
+            else:
+                content = await call_firecrawl_scrape(url)
+            if content and content.strip():
+                attempts.append(_attempt("web_fetch", provider, "ok", start, result_count=1))
+                return {
+                    "ok": True,
+                    "url": url,
+                    "provider": provider,
+                    "content": content,
+                }, attempts
+            attempts.append(_attempt("web_fetch", provider, "empty", start))
+        except Exception as e:
+            attempts.append(_attempt("web_fetch", provider, "error", start, error_type="runtime_error", error=str(e)))
+    return None, attempts
+
+
+async def _run_web_search_fallback(
+    query: str,
+    count: int = 5,
+    providers: str = "auto",
+    fallback: str = "auto",
+) -> tuple[list[dict], list[dict]]:
+    provider_filter = _parse_provider_filter(providers)
+    attempts: list[dict] = []
+    configured: list[str] = []
+    if config.zhipu_api_key:
+        configured.append("zhipu")
+    if config.tavily_api_key:
+        configured.append("tavily")
+    if config.firecrawl_api_key:
+        configured.append("firecrawl")
+    if provider_filter is not None:
+        configured = [p for p in configured if p in provider_filter]
+    if fallback == "off":
+        configured = configured[:1]
+
+    for provider in configured:
+        start = time.time()
+        try:
+            if provider == "zhipu":
+                data = await zhipu_search(query, count=count)
+                if data.get("ok"):
+                    sources = _normalize_source_results(data.get("results"), "zhipu")
+                    if sources:
+                        attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
+                        return sources, attempts
+                status = "error" if data.get("error_type") in {"rate_limited", "auth_error", "timeout", "network_error", "runtime_error"} else "empty"
+                attempts.append(_attempt("web_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", "")))
+            elif provider == "tavily":
+                results = await call_tavily_search(query, count)
+                sources = _normalize_source_results(results, "tavily")
+                if sources:
+                    attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
+                    return sources, attempts
+                attempts.append(_attempt("web_search", provider, "empty", start))
+            elif provider == "firecrawl":
+                results = await call_firecrawl_search(query, count)
+                sources = _normalize_source_results(results, "firecrawl")
+                if sources:
+                    attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
+                    return sources, attempts
+                attempts.append(_attempt("web_search", provider, "empty", start))
+        except Exception as e:
+            attempts.append(_attempt("web_search", provider, "error", start, error_type="runtime_error", error=str(e)))
+    return [], attempts
+
+
+async def _run_docs_search_fallback(
+    query: str,
+    providers: str = "auto",
+    fallback: str = "auto",
+) -> tuple[list[dict], list[dict]]:
+    provider_filter = _parse_provider_filter(providers)
+    attempts: list[dict] = []
+    configured: list[str] = []
+    if config.exa_api_key:
+        configured.append("exa")
+    if config.context7_api_key:
+        configured.append("context7")
+    if provider_filter is not None:
+        configured = [p for p in configured if p in provider_filter]
+    if fallback == "off":
+        configured = configured[:1]
+
+    for provider in configured:
+        start = time.time()
+        try:
+            if provider == "exa":
+                data = await exa_search(query, num_results=5, include_highlights=True)
+                if data.get("ok"):
+                    sources = _normalize_source_results(data.get("results"), "exa")
+                    if sources:
+                        attempts.append(_attempt("docs_search", provider, "ok", start, result_count=len(sources)))
+                        return sources, attempts
+                status = "error" if data.get("error_type") in {"auth_error", "timeout", "network_error", "runtime_error"} else "empty"
+                attempts.append(_attempt("docs_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", "")))
+            elif provider == "context7":
+                data = await context7_library(query, query)
+                if data.get("ok"):
+                    sources = [
+                        {
+                            "url": f"context7:{item.get('id')}",
+                            "title": item.get("title") or item.get("id") or "Context7",
+                            "description": item.get("description") or "",
+                            "provider": "context7",
+                        }
+                        for item in data.get("results", [])
+                        if item.get("id")
+                    ]
+                    if sources:
+                        attempts.append(_attempt("docs_search", provider, "ok", start, result_count=len(sources)))
+                        return sources, attempts
+                status = "error" if data.get("error_type") in {"auth_error", "timeout", "network_error", "runtime_error"} else "empty"
+                attempts.append(_attempt("docs_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", "")))
+        except Exception as e:
+            attempts.append(_attempt("docs_search", provider, "error", start, error_type="runtime_error", error=str(e)))
+    return [], attempts
 
 
 async def call_tavily_extract(url: str) -> str | None:
@@ -247,80 +717,62 @@ async def call_tavily_map(
         return {"ok": False, "error_type": "network_error", "error": f"映射错误: {str(e)}"}
 
 
-async def search(query: str, platform: str = "", model: str = "", extra_sources: int = 0) -> dict[str, Any]:
+async def search(
+    query: str,
+    platform: str = "",
+    model: str = "",
+    extra_sources: int = 0,
+    validation: str = "",
+    fallback: str = "",
+    providers: str = "auto",
+) -> dict[str, Any]:
     start = time.time()
     session_id = new_session_id()
     try:
-        api_url = config.smart_search_api_url
-        api_key = config.smart_search_api_key
+        validation_level = (validation or config.validation_level).strip().lower()
+        fallback_mode = (fallback or config.fallback_mode).strip().lower()
+        if validation_level not in config._ALLOWED_VALIDATION_LEVELS:
+            raise ValueError(f"Invalid validation level: {validation_level}")
+        if fallback_mode not in config._ALLOWED_FALLBACK_MODES:
+            raise ValueError(f"Invalid fallback mode: {fallback_mode}")
     except ValueError as e:
-        return {
-            "ok": False,
-            "error_type": "config_error",
-            "error": str(e),
-            "session_id": session_id,
-            "query": query,
-            "primary_api_mode": config.smart_search_api_mode,
-            "content": "",
-            "sources": [],
-            "sources_count": 0,
-            "primary_sources": [],
-            "primary_sources_count": 0,
-            "extra_sources": [],
-            "extra_sources_count": 0,
-            "source_warning": "",
-            "elapsed_ms": _elapsed_ms(start),
-        }
+        return _empty_search_result(start, session_id, query, "parameter_error", str(e))
+
+    minimum = validate_minimum_profile()
+    if not minimum.get("ok"):
+        return _empty_search_result(
+            start,
+            session_id,
+            query,
+            minimum.get("error_type", "config_error"),
+            minimum.get("error", MINIMUM_PROFILE_ERROR),
+            extra={
+                "capability_status": minimum.get("capability_status", {}),
+                "minimum_profile_ok": False,
+                "validation_level": validation_level,
+            },
+        )
 
     try:
-        primary_api_mode = config.resolve_primary_api_mode(api_url)
-        xai_tools = config.parse_xai_tools() if primary_api_mode == "xai-responses" else []
+        main_provider_configs = _main_search_provider_configs(model_override=model, providers=providers)
     except ValueError as e:
-        return {
-            "ok": False,
-            "error_type": "parameter_error",
-            "error": str(e),
-            "session_id": session_id,
-            "query": query,
-            "primary_api_mode": config.smart_search_api_mode,
-            "content": "",
-            "sources": [],
-            "sources_count": 0,
-            "primary_sources": [],
-            "primary_sources_count": 0,
-            "extra_sources": [],
-            "extra_sources_count": 0,
-            "source_warning": "",
-            "elapsed_ms": _elapsed_ms(start),
-        }
+        return _empty_search_result(start, session_id, query, "parameter_error", str(e), extra={"validation_level": validation_level})
 
-    effective_model = config.smart_search_model
-    if model:
-        available = await get_available_models_cached(api_url, api_key)
-        if available and model not in available:
-            return {
-                "ok": False,
-                "error_type": "parameter_error",
-                "error": f"无效模型: {model}",
-                "session_id": session_id,
-                "query": query,
-                "primary_api_mode": primary_api_mode,
-                "content": "",
-                "sources": [],
-                "sources_count": 0,
-                "primary_sources": [],
-                "primary_sources_count": 0,
-                "extra_sources": [],
-                "extra_sources_count": 0,
-                "source_warning": "",
-                "elapsed_ms": _elapsed_ms(start),
-            }
-        effective_model = model
+    if not main_provider_configs:
+        return _empty_search_result(
+            start,
+            session_id,
+            query,
+            "config_error",
+            "No configured main_search provider matches --providers.",
+            extra={
+                "validation_level": validation_level,
+                "capability_status": minimum.get("capability_status", {}),
+                "minimum_profile_ok": minimum.get("ok", False),
+            },
+        )
 
-    if primary_api_mode == "xai-responses":
-        search_provider = XAIResponsesSearchProvider(api_url, api_key, effective_model, xai_tools)
-    else:
-        search_provider = OpenAICompatibleSearchProvider(api_url, api_key, effective_model)
+    primary_api_mode = main_provider_configs[0]["mode"]
 
     has_tavily = bool(config.tavily_api_key)
     has_firecrawl = bool(config.firecrawl_api_key)
@@ -335,20 +787,83 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
         elif has_firecrawl:
             firecrawl_count = extra_sources
 
-    coros: list[Any] = [search_provider.search(query, platform)]
+    docs_intent = _is_docs_intent(query)
+    zh_current_intent = _is_zh_current_intent(query)
+    fetch_intent = _is_fetch_intent(query)
+    selected_main_provider_configs = main_provider_configs if fallback_mode != "off" else main_provider_configs[:1]
+    routing_decision = {
+        "docs_intent": docs_intent,
+        "zh_current_intent": zh_current_intent,
+        "fetch_intent": fetch_intent,
+        "validation_level": validation_level,
+        "fallback_mode": fallback_mode,
+        "providers": providers,
+        "main_search_chain": [item["provider"] for item in selected_main_provider_configs],
+    }
+
+    provider_attempts: list[dict] = []
+    main_providers = _main_search_providers(main_provider_configs, fallback_mode)
+    primary_start = time.time()
+    primary_result = None
+    successful_main_config: dict[str, Any] | None = None
+    last_primary_error: dict[str, Any] | None = None
+    for provider_config, search_provider in zip(selected_main_provider_configs, main_providers):
+        primary_start = time.time()
+        try:
+            candidate_result = await search_provider.search(query, platform)
+            if candidate_result:
+                primary_result = candidate_result
+                successful_main_config = provider_config
+                provider_attempts.append(_attempt("main_search", search_provider.get_provider_name(), "ok", primary_start, result_count=1))
+                break
+            last_primary_error = _primary_search_error_result(
+                start,
+                session_id,
+                query,
+                provider_config["mode"],
+                "network_error",
+                f"{search_provider.get_provider_name()} 返回空结果",
+            )
+            provider_attempts.append(_attempt("main_search", search_provider.get_provider_name(), "empty", primary_start))
+        except Exception as e:
+            error_result = _primary_search_exception_result(start, session_id, query, provider_config["mode"], search_provider.get_provider_name(), e)
+            last_primary_error = error_result
+            provider_attempts.append(
+                _attempt(
+                    "main_search",
+                    search_provider.get_provider_name(),
+                    "error",
+                    primary_start,
+                    error_type=error_result["error_type"],
+                    error=error_result["error"],
+                )
+            )
+    if primary_result is None:
+        result = last_primary_error or _primary_search_error_result(start, session_id, query, primary_api_mode, "network_error", "搜索失败或无结果")
+        result["provider_attempts"] = provider_attempts
+        result["providers_used"] = _provider_names_from_attempts(provider_attempts)
+        result["fallback_used"] = _fallback_used(provider_attempts)
+        result["routing_decision"] = routing_decision
+        result["validation_level"] = validation_level
+        result["minimum_profile_ok"] = minimum.get("ok", False)
+        result["capability_status"] = minimum.get("capability_status", {})
+        return result
+
+    successful_main_config = successful_main_config or selected_main_provider_configs[0]
+    primary_api_mode = successful_main_config["mode"]
+    effective_model = successful_main_config["model"]
+
+    coros: list[Any] = []
     if tavily_count:
         coros.append(call_tavily_search(query, tavily_count))
     if firecrawl_count:
         coros.append(call_firecrawl_search(query, firecrawl_count))
 
     gathered = await asyncio.gather(*coros, return_exceptions=True)
-    primary_result = gathered[0]
-    if isinstance(primary_result, BaseException):
-        return _primary_search_exception_result(start, session_id, query, primary_api_mode, search_provider.get_provider_name(), primary_result)
     primary_result = primary_result or ""
     tavily_results: list[dict] | None = None
     firecrawl_results: list[dict] | None = None
-    idx = 1
+    idx = 0
     if tavily_count:
         tavily_results = None if isinstance(gathered[idx], BaseException) else gathered[idx]
         idx += 1
@@ -357,12 +872,35 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
 
     answer, primary_sources = split_answer_and_sources(primary_result)
     extra_source_items = extra_results_to_sources(tavily_results, firecrawl_results)
+    for item_provider, results in (("tavily", tavily_results), ("firecrawl", firecrawl_results)):
+        if results:
+            provider_attempts.append(_attempt("web_search", item_provider, "ok", start, result_count=len(results)))
+
+    supplemental_sources: list[dict] = []
+    if validation_level in {"balanced", "strict"}:
+        if docs_intent:
+            docs_sources, docs_attempts = await _run_docs_search_fallback(query, providers=providers, fallback=fallback_mode)
+            provider_attempts.extend(docs_attempts)
+            supplemental_sources.extend(docs_sources)
+        if zh_current_intent or validation_level == "strict":
+            web_sources, web_attempts = await _run_web_search_fallback(query, count=max(1, extra_sources or 3), providers=providers, fallback=fallback_mode)
+            provider_attempts.extend(web_attempts)
+            supplemental_sources.extend(web_sources)
+        if fetch_intent:
+            fetch_result, fetch_attempts = await _run_web_fetch_fallback(query.strip(), fallback=fallback_mode)
+            provider_attempts.extend(fetch_attempts)
+            if fetch_result:
+                supplemental_sources.append({"url": fetch_result["url"], "provider": fetch_result["provider"], "description": fetch_result["content"][:300]})
+
+    extra_source_items = merge_sources(extra_source_items, supplemental_sources)
     sources = merge_sources(primary_sources, extra_source_items)
     ok = bool(answer or sources)
+    if validation_level == "strict" and not sources:
+        ok = False
     return {
         "ok": ok,
-        "error_type": "" if ok else "network_error",
-        "error": "" if ok else "搜索失败或无结果",
+        "error_type": "" if ok else ("evidence_error" if validation_level == "strict" else "network_error"),
+        "error": "" if ok else ("strict 模式证据不足" if validation_level == "strict" else "搜索失败或无结果"),
         "session_id": session_id,
         "query": query,
         "platform": platform,
@@ -376,6 +914,13 @@ async def search(query: str, platform: str = "", model: str = "", extra_sources:
         "extra_sources": extra_source_items,
         "extra_sources_count": len(extra_source_items),
         "source_warning": SOURCE_PROVENANCE_WARNING if extra_source_items else "",
+        "routing_decision": routing_decision,
+        "providers_used": _provider_names_from_attempts(provider_attempts),
+        "provider_attempts": provider_attempts,
+        "fallback_used": _fallback_used(provider_attempts),
+        "validation_level": validation_level,
+        "minimum_profile_ok": minimum.get("ok", False),
+        "capability_status": minimum.get("capability_status", {}),
         "elapsed_ms": _elapsed_ms(start),
     }
 
@@ -456,13 +1001,36 @@ def _primary_search_error_result(
 
 async def fetch(url: str) -> dict[str, Any]:
     start = time.time()
+    attempts: list[dict] = []
+    tavily_start = time.time()
     tavily_result = await call_tavily_extract(url)
     if tavily_result:
-        return {"ok": True, "url": url, "provider": "tavily", "content": tavily_result, "elapsed_ms": _elapsed_ms(start)}
+        attempts.append(_attempt("web_fetch", "tavily", "ok", tavily_start, result_count=1))
+        return {
+            "ok": True,
+            "url": url,
+            "provider": "tavily",
+            "content": tavily_result,
+            "provider_attempts": attempts,
+            "fallback_used": False,
+            "elapsed_ms": _elapsed_ms(start),
+        }
+    attempts.append(_attempt("web_fetch", "tavily", "empty", tavily_start))
 
+    firecrawl_start = time.time()
     firecrawl_result = await call_firecrawl_scrape(url)
     if firecrawl_result:
-        return {"ok": True, "url": url, "provider": "firecrawl", "content": firecrawl_result, "elapsed_ms": _elapsed_ms(start)}
+        attempts.append(_attempt("web_fetch", "firecrawl", "ok", firecrawl_start, result_count=1))
+        return {
+            "ok": True,
+            "url": url,
+            "provider": "firecrawl",
+            "content": firecrawl_result,
+            "provider_attempts": attempts,
+            "fallback_used": True,
+            "elapsed_ms": _elapsed_ms(start),
+        }
+    attempts.append(_attempt("web_fetch", "firecrawl", "empty", firecrawl_start))
 
     if not config.tavily_api_key and not config.firecrawl_api_key:
         error = "TAVILY_API_KEY 和 FIRECRAWL_API_KEY 均未配置"
@@ -470,7 +1038,17 @@ async def fetch(url: str) -> dict[str, Any]:
     else:
         error = "所有提取服务均未能获取内容"
         error_type = "network_error"
-    return {"ok": False, "url": url, "provider": "", "content": "", "error_type": error_type, "error": error, "elapsed_ms": _elapsed_ms(start)}
+    return {
+        "ok": False,
+        "url": url,
+        "provider": "",
+        "content": "",
+        "error_type": error_type,
+        "error": error,
+        "provider_attempts": attempts,
+        "fallback_used": _fallback_used(attempts),
+        "elapsed_ms": _elapsed_ms(start),
+    }
 
 
 async def map_site(
@@ -542,6 +1120,82 @@ async def exa_find_similar(url: str, num_results: int = 5) -> dict[str, Any]:
 
     provider = ExaSearchProvider(config.exa_base_url, api_key, config.exa_timeout)
     raw = await provider.find_similar(url=url, num_results=num_results)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"ok": False, "error_type": "parse_error", "error": raw}
+    if not data.get("ok", False):
+        data.setdefault("error_type", "network_error")
+    return data
+
+
+async def zhipu_search(
+    query: str,
+    count: int = 10,
+    search_engine: str = "",
+    search_recency_filter: str = "noLimit",
+    search_domain_filter: str = "",
+    content_size: str = "medium",
+) -> dict[str, Any]:
+    api_key = config.zhipu_api_key
+    if not api_key:
+        return {
+            "ok": False,
+            "error_type": "config_error",
+            "error": "ZHIPU_API_KEY 未配置。请运行 `smart-search setup`，或使用 `smart-search config set ZHIPU_API_KEY <key>`。",
+        }
+    provider = ZhipuWebSearchProvider(
+        config.zhipu_api_url,
+        api_key,
+        search_engine or config.zhipu_search_engine,
+        config.zhipu_timeout,
+    )
+    raw = await provider.search(
+        query=query,
+        count=count,
+        search_engine=search_engine or None,
+        search_recency_filter=search_recency_filter,
+        search_domain_filter=search_domain_filter,
+        content_size=content_size,
+    )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"ok": False, "error_type": "parse_error", "error": raw}
+    if not data.get("ok", False):
+        data.setdefault("error_type", "network_error")
+    return data
+
+
+async def context7_library(name: str, query: str = "") -> dict[str, Any]:
+    api_key = config.context7_api_key
+    if not api_key:
+        return {
+            "ok": False,
+            "error_type": "config_error",
+            "error": "CONTEXT7_API_KEY 未配置。请运行 `smart-search setup`，或使用 `smart-search config set CONTEXT7_API_KEY <key>`。",
+        }
+    provider = Context7Provider(config.context7_base_url, api_key, config.context7_timeout)
+    raw = await provider.library(name, query)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"ok": False, "error_type": "parse_error", "error": raw}
+    if not data.get("ok", False):
+        data.setdefault("error_type", "network_error")
+    return data
+
+
+async def context7_docs(library_id: str, query: str) -> dict[str, Any]:
+    api_key = config.context7_api_key
+    if not api_key:
+        return {
+            "ok": False,
+            "error_type": "config_error",
+            "error": "CONTEXT7_API_KEY 未配置。请运行 `smart-search setup`，或使用 `smart-search config set CONTEXT7_API_KEY <key>`。",
+        }
+    provider = Context7Provider(config.context7_base_url, api_key, config.context7_timeout)
+    raw = await provider.docs(library_id, query)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -629,6 +1283,23 @@ async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dic
         return {"status": "ok", "message": f"xAI Responses API 可用 (HTTP {response.status_code})", "response_time_ms": response_time}
 
 
+async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
+    if provider_config["mode"] == "xai-responses":
+        return await _test_primary_responses(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
+    return await _test_primary_connection(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
+
+
+async def _safe_test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return await _test_main_provider_connection(provider_config)
+    except httpx.TimeoutException:
+        return {"status": "timeout", "message": f"{provider_config['provider']} 请求超时，请检查网络连接或 API URL"}
+    except httpx.RequestError as e:
+        return {"status": "error", "message": f"{provider_config['provider']} 网络错误: {str(e)}"}
+    except Exception as e:
+        return {"status": "error", "message": f"{provider_config['provider']} 未知错误: {str(e)}"}
+
+
 async def _test_exa_connection() -> dict[str, Any]:
     exa_key = config.exa_api_key
     if not exa_key:
@@ -663,26 +1334,44 @@ async def _test_tavily_connection() -> dict[str, Any]:
         return {"status": "warning", "message": f"HTTP {resp.status_code}: {resp.text[:100]}", "response_time_ms": response_time}
 
 
+async def _test_zhipu_connection() -> dict[str, Any]:
+    if not config.zhipu_api_key:
+        return {"status": "not_configured", "message": "ZHIPU_API_KEY 未设置，智谱搜索功能不可用"}
+    result = await zhipu_search("test", count=1)
+    if result.get("ok"):
+        return {"status": "ok", "message": "智谱 Web Search 可用", "response_time_ms": result.get("elapsed_ms", 0)}
+    return {"status": "warning", "message": result.get("error", "智谱 Web Search 不可用"), "response_time_ms": result.get("elapsed_ms", 0)}
+
+
+async def _test_context7_connection() -> dict[str, Any]:
+    if not config.context7_api_key:
+        return {"status": "not_configured", "message": "CONTEXT7_API_KEY 未设置，Context7 功能不可用"}
+    result = await context7_library("react", "hooks")
+    if result.get("ok"):
+        return {"status": "ok", "message": "Context7 API 可用", "response_time_ms": result.get("elapsed_ms", 0)}
+    return {"status": "warning", "message": result.get("error", "Context7 API 不可用"), "response_time_ms": result.get("elapsed_ms", 0)}
+
+
 async def doctor() -> dict[str, Any]:
     info = config.get_config_info()
 
+    main_provider_configs: list[dict[str, Any]] = []
     try:
-        api_url = config.smart_search_api_url
-        api_key = config.smart_search_api_key
-        model = config.smart_search_model
-        primary_api_mode = config.resolve_primary_api_mode(api_url)
-        info["primary_api_mode"] = primary_api_mode
-        if primary_api_mode == "xai-responses":
-            info["primary_connection_test"] = await _test_primary_responses(api_url, api_key, model)
+        main_provider_configs = _main_search_provider_configs()
+        info["main_search_connection_tests"] = {}
+        for provider_config in main_provider_configs:
+            info["main_search_connection_tests"][provider_config["provider"]] = await _safe_test_main_provider_connection(provider_config)
+        if main_provider_configs:
+            first_provider = main_provider_configs[0]
+            info["primary_api_mode"] = first_provider["mode"]
+            info["primary_connection_test"] = info["main_search_connection_tests"][first_provider["provider"]]
         else:
-            info["primary_connection_test"] = await _test_primary_connection(api_url, api_key, model)
-    except httpx.TimeoutException:
-        info["primary_connection_test"] = {"status": "timeout", "message": "请求超时（10秒），请检查网络连接或 API URL"}
-    except httpx.RequestError as e:
-        info["primary_connection_test"] = {"status": "error", "message": f"网络错误: {str(e)}"}
+            info["primary_connection_test"] = {"status": "config_error", "message": MINIMUM_PROFILE_ERROR}
     except ValueError as e:
+        info["main_search_connection_tests"] = {}
         info["primary_connection_test"] = {"status": "config_error", "message": str(e)}
     except Exception as e:
+        info["main_search_connection_tests"] = {}
         info["primary_connection_test"] = {"status": "error", "message": f"未知错误: {str(e)}"}
 
     try:
@@ -704,12 +1393,39 @@ async def doctor() -> dict[str, Any]:
     else:
         info["firecrawl_connection_test"] = {"status": "not_configured", "message": "FIRECRAWL_API_KEY 未设置，Firecrawl 功能不可用"}
 
+    try:
+        info["zhipu_connection_test"] = await _test_zhipu_connection()
+    except httpx.TimeoutException:
+        info["zhipu_connection_test"] = {"status": "timeout", "message": "智谱 API 请求超时"}
+    except Exception as e:
+        info["zhipu_connection_test"] = {"status": "error", "message": str(e)}
+
+    try:
+        info["context7_connection_test"] = await _test_context7_connection()
+    except httpx.TimeoutException:
+        info["context7_connection_test"] = {"status": "timeout", "message": "Context7 API 请求超时"}
+    except Exception as e:
+        info["context7_connection_test"] = {"status": "error", "message": str(e)}
+
+    minimum = validate_minimum_profile()
+    info["capability_status"] = minimum.get("capability_status", get_capability_status())
+    info["minimum_profile_ok"] = minimum.get("ok", False)
+    info["minimum_profile_missing"] = minimum.get("missing", [])
+    main_connection_tests = info.get("main_search_connection_tests") or {}
+    main_search_statuses = [item.get("status") for item in main_connection_tests.values() if isinstance(item, dict)]
     primary_test = info.get("primary_connection_test", {})
     primary_status = primary_test.get("status")
-    info["ok"] = primary_status == "ok"
+    main_search_ok = any(status == "ok" for status in main_search_statuses) if main_connection_tests else primary_status == "ok"
+    info["ok"] = main_search_ok and minimum.get("ok", False)
     if info["ok"]:
         info["error_type"] = ""
         info["error"] = ""
+    elif info.get("config_parameter_errors"):
+        info["error"] = "; ".join(info["config_parameter_errors"])
+        info["error_type"] = "parameter_error"
+    elif not minimum.get("ok", False):
+        info["error"] = minimum.get("error", MINIMUM_PROFILE_ERROR)
+        info["error_type"] = minimum.get("error_type", "config_error")
     else:
         info["error"] = primary_test.get("message", "Primary connection check failed")
         if primary_status == "config_error":
@@ -757,6 +1473,202 @@ def config_set(key: str, value: str) -> dict[str, Any]:
 def config_unset(key: str) -> dict[str, Any]:
     config.unset_config_value(key)
     return {"ok": True, "config_file": str(config.config_file), "key": key.strip().upper()}
+
+
+async def smoke(mode: str = "mock") -> dict[str, Any]:
+    start = time.time()
+    mode = (mode or "mock").strip().lower()
+    if mode not in {"mock", "live"}:
+        return {"ok": False, "error_type": "parameter_error", "error": "mode must be mock or live"}
+    if mode == "live":
+        return await _smoke_live(start)
+    return await _smoke_mock(start)
+
+
+def _case(name: str, ok: bool, details: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"name": name, "ok": ok, **(details or {})}
+
+
+def _case_failed(case: dict[str, Any]) -> bool:
+    return not case.get("ok") and case.get("severity", "critical") != "degraded"
+
+
+async def _smoke_mock(start: float) -> dict[str, Any]:
+    cases: list[dict[str, Any]] = []
+
+    minimum_status = {
+        "main_search": {
+            "configured": ["xai-responses", "openai-compatible"],
+            "fallback_chain": MAIN_SEARCH_FALLBACK_CHAIN,
+            "ok": True,
+        },
+        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "tavily", "firecrawl"], "ok": True},
+        "docs_search": {"configured": ["exa"], "fallback_chain": ["exa", "context7"], "ok": True},
+        "web_fetch": {"configured": ["tavily"], "fallback_chain": ["tavily", "firecrawl"], "ok": True},
+    }
+    minimum = _minimum_profile_result("standard", minimum_status)
+    cases.append(
+        _case(
+            "doctor minimum profile gate",
+            minimum["ok"] and not minimum["missing"],
+            {"minimum_profile_ok": minimum["ok"], "capability_status": minimum["capability_status"]},
+        )
+    )
+
+    missing_minimum = _minimum_profile_result(
+        "standard",
+        {
+            **minimum_status,
+            "docs_search": {"configured": [], "fallback_chain": ["exa", "context7"], "ok": False},
+        },
+    )
+    cases.append(
+        _case(
+            "doctor minimum profile fails closed",
+            not missing_minimum["ok"] and missing_minimum["missing"] == ["docs_search"],
+            {"missing": missing_minimum["missing"], "error_type": missing_minimum["error_type"]},
+        )
+    )
+
+    main_attempts = [_attempt("main_search", "xAI Responses", "ok", time.time(), result_count=1)]
+    cases.append(_case("main_search xai responses answer path", True, {"provider_attempts": main_attempts}))
+
+    main_fallback_attempts = [
+        _attempt("main_search", "xAI Responses", "error", time.time(), error_type="network_error", error="mock failure"),
+        _attempt("main_search", "OpenAI-compatible", "ok", time.time(), result_count=1),
+    ]
+    cases.append(_case("main_search fallback xai_to_openai_compatible", _fallback_used(main_fallback_attempts), {"provider_attempts": main_fallback_attempts}))
+
+    web_attempts = [
+        _attempt("web_search", "grok-web-tools", "error", time.time(), error_type="network_error", error="mock failure"),
+        _attempt("web_search", "zhipu", "ok", time.time(), result_count=1),
+    ]
+    cases.append(_case("web_search fallback grok_to_zhipu", _fallback_used(web_attempts), {"provider_attempts": web_attempts}))
+
+    attempts = [
+        _attempt("web_fetch", "tavily", "empty", time.time()),
+        _attempt("web_fetch", "firecrawl", "ok", time.time(), result_count=1),
+    ]
+    cases.append(_case("web_fetch fallback tavily_to_firecrawl", _fallback_used(attempts), {"provider_attempts": attempts}))
+
+    docs_attempts = [
+        _attempt("docs_search", "exa", "empty", time.time()),
+        _attempt("docs_search", "context7", "ok", time.time(), result_count=1),
+    ]
+    cases.append(_case("docs_search fallback exa_to_context7", _fallback_used(docs_attempts), {"provider_attempts": docs_attempts}))
+
+    general_route = {
+        "docs_intent": _is_docs_intent("today AI news"),
+        "zh_current_intent": _is_zh_current_intent("today AI news"),
+    }
+    cases.append(_case("search balanced avoids context7 for general query", not general_route["docs_intent"], {"routing_decision": general_route}))
+
+    docs_route = {"docs_intent": _is_docs_intent("React useEffect API docs")}
+    cases.append(_case("search docs intent uses docs route", docs_route["docs_intent"], {"routing_decision": docs_route}))
+
+    zh_route = {"zh_current_intent": _is_zh_current_intent("今天国内 AI 新闻")}
+    cases.append(_case("search zh current intent uses zhipu reinforcement", zh_route["zh_current_intent"], {"routing_decision": zh_route}))
+
+    strict_attempts = [_attempt("main_search", "xAI Responses", "ok", time.time(), result_count=1)]
+    strict_sources: list[dict[str, Any]] = []
+    cases.append(
+        _case(
+            "strict insufficient evidence fails closed",
+            not strict_sources,
+            {"provider_attempts": strict_attempts, "error_type": "evidence_error"},
+        )
+    )
+
+    all_attempts: list[dict] = []
+    for c in cases:
+        all_attempts.extend(c.get("provider_attempts", []))
+    failed = [c["name"] for c in cases if _case_failed(c)]
+    return {
+        "ok": not failed,
+        "mode": "mock",
+        "failed_cases": failed,
+        "cases": cases,
+        "provider_attempts": all_attempts,
+        "providers_used": _provider_names_from_attempts(all_attempts),
+        "fallback_used": _fallback_used(all_attempts),
+        "elapsed_ms": _elapsed_ms(start),
+    }
+
+
+async def _smoke_live(start: float) -> dict[str, Any]:
+    cases: list[dict[str, Any]] = []
+    doctor_result = await doctor()
+    capability_status = doctor_result.get("capability_status", {})
+    cases.append(
+        _case(
+            "doctor minimum profile",
+            bool(doctor_result.get("minimum_profile_ok")),
+            {
+                "error_type": doctor_result.get("error_type", ""),
+                "error": doctor_result.get("error", ""),
+                "capability_status": doctor_result.get("capability_status", {}),
+            },
+        )
+    )
+
+    zhipu_status = doctor_result.get("zhipu_connection_test", {})
+    if config.zhipu_api_key:
+        zhipu_ok = zhipu_status.get("status") == "ok"
+        web_fallback_available = len(capability_status.get("web_search", {}).get("configured", [])) > 1
+        cases.append(
+            _case(
+                "zhipu search",
+                zhipu_ok,
+                {
+                    "status": zhipu_status.get("status", ""),
+                    "error": zhipu_status.get("message", ""),
+                    "severity": "" if zhipu_ok else ("degraded" if web_fallback_available else "critical"),
+                    "fallback_available": web_fallback_available,
+                },
+            )
+        )
+    else:
+        cases.append(_case("zhipu search", True, {"skipped": "ZHIPU_API_KEY not configured"}))
+
+    context7_status = doctor_result.get("context7_connection_test", {})
+    if config.context7_api_key:
+        context7_ok = context7_status.get("status") == "ok"
+        docs_fallback_available = len(capability_status.get("docs_search", {}).get("configured", [])) > 1
+        cases.append(
+            _case(
+                "context7 library",
+                context7_ok,
+                {
+                    "status": context7_status.get("status", ""),
+                    "error": context7_status.get("message", ""),
+                    "severity": "" if context7_ok else ("degraded" if docs_fallback_available else "critical"),
+                    "fallback_available": docs_fallback_available,
+                },
+            )
+        )
+    else:
+        cases.append(_case("context7 library", True, {"skipped": "CONTEXT7_API_KEY not configured"}))
+
+    if config.tavily_api_key or config.firecrawl_api_key:
+        fetch_result = await fetch("https://example.com")
+        cases.append(_case("web fetch fallback chain", bool(fetch_result.get("ok")), {"provider": fetch_result.get("provider", ""), "provider_attempts": fetch_result.get("provider_attempts", [])}))
+    else:
+        cases.append(_case("web fetch fallback chain", True, {"skipped": "no fetch providers configured"}))
+
+    failed = [c["name"] for c in cases if _case_failed(c)]
+    degraded = [c["name"] for c in cases if not c.get("ok") and c.get("severity") == "degraded"]
+    attempts: list[dict] = []
+    for c in cases:
+        attempts.extend(c.get("provider_attempts", []))
+    return {
+        "ok": not failed,
+        "mode": "live",
+        "failed_cases": failed,
+        "degraded_cases": degraded,
+        "cases": cases,
+        "provider_attempts": attempts,
+        "elapsed_ms": _elapsed_ms(start),
+    }
 
 
 def write_output(path: str | Path, content: str) -> None:

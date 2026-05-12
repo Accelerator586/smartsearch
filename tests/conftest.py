@@ -17,3 +17,4 @@ def isolate_smart_search_config(monkeypatch, tmp_path):
     for key in config._CONFIG_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("SMART_SEARCH_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("SMART_SEARCH_MINIMUM_PROFILE", "off")

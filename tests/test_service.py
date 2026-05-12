@@ -16,6 +16,13 @@ def _reset_config(monkeypatch, tmp_path):
         "SMART_SEARCH_API_MODE",
         "SMART_SEARCH_XAI_TOOLS",
         "SMART_SEARCH_MODEL",
+        "XAI_API_URL",
+        "XAI_API_KEY",
+        "XAI_MODEL",
+        "XAI_TOOLS",
+        "OPENAI_COMPATIBLE_API_URL",
+        "OPENAI_COMPATIBLE_API_KEY",
+        "OPENAI_COMPATIBLE_MODEL",
         "EXA_API_KEY",
         "EXA_BASE_URL",
         "TAVILY_API_KEY",
@@ -211,6 +218,133 @@ async def test_search_uses_xai_responses_for_api_x_ai(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_search_fallbacks_from_xai_responses_to_openai_compatible(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("XAI_MODEL", "xai-model")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "relay-model")
+    captured = []
+
+    async def failing_xai(self, query, platform="", ctx=None):
+        captured.append((self.__class__.__name__, self.api_url, self.api_key, self.model))
+        request = httpx.Request("POST", "https://api.x.ai/v1/responses")
+        response = httpx.Response(503, text="responses unavailable", request=request)
+        raise httpx.HTTPStatusError("responses unavailable", request=request, response=response)
+
+    async def fallback_openai(self, query, platform="", ctx=None):
+        captured.append((self.__class__.__name__, self.api_url, self.api_key, self.model))
+        return 'Fallback answer.\n\nsources([{"url":"https://fallback.example.com","title":"Fallback"}])'
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", failing_xai)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fallback_openai)
+
+    result = await service.search("what is example")
+
+    assert result["ok"] is True
+    assert result["content"] == "Fallback answer."
+    assert result["fallback_used"] is True
+    assert [a["provider"] for a in result["provider_attempts"][:2]] == ["xAI Responses", "OpenAI-compatible"]
+    assert result["provider_attempts"][0]["status"] == "error"
+    assert result["provider_attempts"][1]["status"] == "ok"
+    assert result["primary_api_mode"] == "chat-completions"
+    assert result["model"] == "relay-model"
+    assert result["routing_decision"]["main_search_chain"] == ["xai-responses", "openai-compatible"]
+    assert captured == [
+        ("XAIResponsesSearchProvider", "https://api.x.ai/v1", "xai-test-secret", "xai-model"),
+        ("OpenAICompatibleSearchProvider", "https://relay.example.com/v1", "relay-test-secret", "relay-model"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_search_does_not_fake_openai_compatible_fallback_when_only_xai_configured(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+
+    async def failing_xai(self, query, platform="", ctx=None):
+        request = httpx.Request("POST", "https://api.x.ai/v1/responses")
+        response = httpx.Response(503, text="responses unavailable", request=request)
+        raise httpx.HTTPStatusError("responses unavailable", request=request, response=response)
+
+    async def should_not_run(self, query, platform="", ctx=None):
+        raise AssertionError("OpenAI-compatible fallback requires its own configured URL and key")
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", failing_xai)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", should_not_run)
+
+    result = await service.search("what is example")
+
+    assert result["ok"] is False
+    assert result["fallback_used"] is False
+    assert [a["provider"] for a in result["provider_attempts"]] == ["xAI Responses"]
+
+
+@pytest.mark.asyncio
+async def test_search_accepts_only_openai_compatible_as_main_provider(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_MINIMUM_PROFILE", "standard")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+
+    async def fake_search(self, query, platform="", ctx=None):
+        return "Relay answer."
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
+
+    result = await service.search("what is example")
+
+    assert result["ok"] is True
+    assert result["primary_api_mode"] == "chat-completions"
+    assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
+    assert result["capability_status"]["main_search"]["configured"] == ["openai-compatible"]
+
+
+@pytest.mark.asyncio
+async def test_search_provider_filter_can_select_openai_compatible(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def should_not_run(self, query, platform="", ctx=None):
+        raise AssertionError("xAI should be filtered out")
+
+    async def fallback_openai(self, query, platform="", ctx=None):
+        return "Relay answer."
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", should_not_run)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fallback_openai)
+
+    result = await service.search("what is example", providers="openai-compatible")
+
+    assert result["ok"] is True
+    assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
+    assert [a["provider"] for a in result["provider_attempts"]] == ["OpenAI-compatible"]
+
+
+@pytest.mark.asyncio
+async def test_search_respects_fallback_off_for_main_search(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
+    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+
+    async def failing_xai(self, query, platform="", ctx=None):
+        request = httpx.Request("POST", "https://api.x.ai/v1/responses")
+        response = httpx.Response(503, text="responses unavailable", request=request)
+        raise httpx.HTTPStatusError("responses unavailable", request=request, response=response)
+
+    async def should_not_run(self, query, platform="", ctx=None):
+        raise AssertionError("OpenAI-compatible fallback should not run when fallback is off")
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", failing_xai)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", should_not_run)
+
+    result = await service.search("what is example", fallback="off")
+
+    assert result["ok"] is False
+    assert result["fallback_used"] is False
+    assert [a["provider"] for a in result["provider_attempts"]] == ["xAI Responses"]
+
+
+@pytest.mark.asyncio
 async def test_search_reports_invalid_xai_tools_as_parameter_error(monkeypatch):
     monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
     monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
@@ -241,7 +375,7 @@ async def test_search_reports_primary_provider_http_error(monkeypatch):
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", failing_search)
     monkeypatch.setattr(service, "call_tavily_search", should_not_hide_failure)
 
-    result = await service.search("what is example", extra_sources=1)
+    result = await service.search("what is example", extra_sources=1, fallback="off")
 
     assert result["ok"] is False
     assert result["error_type"] == "network_error"
@@ -386,6 +520,20 @@ async def test_doctor_redacts_secret_and_reports_config_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_doctor_reports_invalid_validation_config(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("SMART_SEARCH_VALIDATION_LEVEL", "banana")
+
+    result = await service.doctor()
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "Invalid SMART_SEARCH_VALIDATION_LEVEL" in result["error"]
+    assert result["SMART_SEARCH_VALIDATION_LEVEL"] == "banana"
+
+
+@pytest.mark.asyncio
 async def test_primary_connection_falls_back_to_chat_when_models_endpoint_fails(monkeypatch):
     calls = []
 
@@ -460,3 +608,36 @@ async def test_doctor_uses_responses_endpoint_for_xai_mode(monkeypatch):
     assert result["primary_connection_test"]["status"] == "ok"
     assert calls[0][0] == "https://api.x.ai/v1/responses"
     assert "tools" not in calls[0][1]
+
+
+@pytest.mark.asyncio
+async def test_doctor_tests_main_providers_independently(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+
+    async def fake_xai(api_url, api_key, model):
+        raise httpx.TimeoutException("xai timeout")
+
+    async def fake_openai(api_url, api_key, model):
+        return {"status": "ok", "message": "relay ok"}
+
+    monkeypatch.setattr(service, "_test_primary_responses", fake_xai)
+    monkeypatch.setattr(service, "_test_primary_connection", fake_openai)
+    async def fake_exa_connection():
+        return {"status": "ok", "message": "exa ok"}
+
+    async def fake_tavily_connection():
+        return {"status": "ok", "message": "tavily ok"}
+
+    monkeypatch.setattr(service, "_test_exa_connection", fake_exa_connection)
+    monkeypatch.setattr(service, "_test_tavily_connection", fake_tavily_connection)
+
+    result = await service.doctor()
+
+    assert result["ok"] is True
+    assert result["primary_connection_test"]["status"] == "timeout"
+    assert result["main_search_connection_tests"]["xai-responses"]["status"] == "timeout"
+    assert result["main_search_connection_tests"]["openai-compatible"]["status"] == "ok"

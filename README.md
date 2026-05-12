@@ -36,9 +36,12 @@ smart-search
 ### 它由哪些服务组成
 
 - 主搜索接口：支持两种路线，用来回答综合搜索问题。
-  - 官方 xAI：`SMART_SEARCH_API_URL=https://api.x.ai/v1` 时，默认走 Responses API 的 `/responses`，并启用 `web_search,x_search` 工具。
-  - 通用中转：其他 OpenAI-compatible 服务默认走 Chat Completions 的 `/chat/completions`。
+  - 官方 xAI：`XAI_API_KEY` 配置后走 Responses API 的 `/responses`，并启用 `web_search,x_search` 工具。
+  - 通用中转：`OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY` 配置后走 Chat Completions 的 `/chat/completions`。
+  - 两者都配置时是平级 `main_search` provider，默认 xAI Responses -> OpenAI-compatible 同能力兜底。
 - Exa：适合查官方文档、API、论文和高质量网页。
+- Context7：适合查 SDK、API、框架和库文档，作为文档检索兜底。
+- 智谱：适合中文、国内、时效或域名过滤类 Web Search 补强。
 - Tavily：适合网页正文提取、站点 map 和补充搜索来源。
 - Firecrawl：作为网页抓取或搜索补充来源。
 
@@ -50,21 +53,24 @@ smart-search
 
 | 命令 | 主要用途 | 会用到的服务 |
 | --- | --- | --- |
-| `search` | 综合搜索并生成回答 | 主搜索接口；如果设置 `--extra-sources`，会额外调用 Tavily / Firecrawl 补来源 |
+| `search` | 综合搜索并生成回答 | 主搜索接口；按意图补充智谱 / Exa / Context7；如果设置 `--extra-sources`，会额外调用 Tavily / Firecrawl 补来源 |
 | `exa-search` | 查官方文档、API、论文、产品页 | Exa |
 | `exa-similar` | 根据一个 URL 找相似网页 | Exa |
+| `zhipu-search` | 中文、国内、时效或域名过滤类来源检索 | 智谱 |
+| `context7-library` / `context7-docs` | 查库、框架、SDK、API 文档 | Context7 |
 | `fetch` | 抓取一个网页正文 | 先用 Tavily；Tavily 没抓到时再用 Firecrawl 兜底 |
 | `map` | 读取一个站点的页面结构 | Tavily |
-| `doctor` | 检查配置和连通状态 | 主搜索接口、Exa、Tavily；Firecrawl 当前只检查 key 是否已设置 |
+| `doctor` | 检查配置和连通状态 | 主搜索接口、Exa、Tavily、智谱、Context7；Firecrawl 当前只检查 key 是否已设置 |
 | `model` | 查看或修改默认模型名 | 本地配置文件 |
 | `regression` | 跑离线回归测试 | 本地 pytest，不调用真实外部服务 |
+| `smoke` | 跑 provider 路由和兜底冒烟测试 | `--mock` 不用真实 key；`--live` 调真实 provider |
 
 `search --extra-sources N` 的行为要特别注意：
 
 - 如果 Tavily 和 Firecrawl 都配置了，会把额外来源拆给两边，Tavily 大约占 60%，Firecrawl 占剩下部分。
 - 如果只配置了 Tavily，就只用 Tavily 补来源。
 - 如果只配置了 Firecrawl，就只用 Firecrawl 补来源。
-- 如果不传 `--extra-sources`，`search` 只调用主搜索接口，不额外调用 Tavily / Firecrawl。
+- 如果不传 `--extra-sources`，`search` 仍会调用主搜索接口；在 `balanced` / `strict` 下，还会按意图调用同能力验证 provider，但不会无脑调用 Tavily / Firecrawl 额外来源。
 
 输出里的来源字段分三层：
 
@@ -132,12 +138,17 @@ smart-search config path --format json
 
 ```powershell
 smart-search setup --non-interactive `
-  --api-url "https://your-api.example.com/v1" `
-  --api-key "your-api-key" `
-  --api-mode "auto" `
-  --xai-tools "web_search,x_search" `
-  --model "your-model-name" `
+  --xai-api-key "your-xai-key" `
+  --xai-model "grok-4-fast" `
+  --openai-compatible-api-url "https://your-relay.example.com/v1" `
+  --openai-compatible-api-key "your-relay-key" `
+  --openai-compatible-model "your-relay-model" `
+  --validation-level "balanced" `
+  --fallback-mode "auto" `
+  --minimum-profile "standard" `
   --exa-key "your-exa-key" `
+  --context7-key "your-context7-key" `
+  --zhipu-key "your-zhipu-key" `
   --tavily-key "your-tavily-key" `
   --firecrawl-key "your-firecrawl-key"
 ```
@@ -148,23 +159,36 @@ smart-search setup --non-interactive `
 smart-search config list --format json
 ```
 
-高级用户和 CI 仍然可以使用环境变量。环境变量优先级高于本机配置文件。最少需要配置主搜索接口：
+高级用户和 CI 仍然可以使用环境变量。环境变量优先级高于本机配置文件。主搜索可以只配 xAI Responses、只配 OpenAI-compatible，或两者都配：
 
 ```powershell
-$env:SMART_SEARCH_API_URL = "https://your-api.example.com/v1"
-$env:SMART_SEARCH_API_KEY = "your-api-key"
-$env:SMART_SEARCH_API_MODE = "auto"
-$env:SMART_SEARCH_XAI_TOOLS = "web_search,x_search"
-$env:SMART_SEARCH_MODEL = "your-model-name"
+$env:XAI_API_KEY = "your-xai-key"
+$env:XAI_MODEL = "grok-4-fast"
+$env:XAI_TOOLS = "web_search,x_search"
+$env:OPENAI_COMPATIBLE_API_URL = "https://your-relay.example.com/v1"
+$env:OPENAI_COMPATIBLE_API_KEY = "your-relay-key"
+$env:OPENAI_COMPATIBLE_MODEL = "your-relay-model"
 ```
+
+旧配置 `SMART_SEARCH_API_URL` / `SMART_SEARCH_API_KEY` / `SMART_SEARCH_API_MODE` / `SMART_SEARCH_MODEL` 仍兼容：`https://api.x.ai/v1` 会被识别为 xAI Responses，其他地址会被识别为 OpenAI-compatible。新配置存在时会优先生效，并把两条主搜索路线当成同能力平级 provider。
 
 可选 provider：
 
 ```powershell
 $env:EXA_API_KEY = "your-exa-key"
+$env:CONTEXT7_API_KEY = "your-context7-key"
+$env:ZHIPU_API_KEY = "your-zhipu-key"
 $env:TAVILY_API_KEY = "your-tavily-key"
 $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 ```
+
+默认最低配置是 `SMART_SEARCH_MINIMUM_PROFILE=standard`。也就是说，分发给其他环境时必须至少满足三类能力：
+
+- `main_search`：至少配置 `XAI_API_KEY`，或 `OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY`；两者都配置时按 xAI Responses -> OpenAI-compatible 做同能力兜底。
+- `docs_search`：至少配置 `EXA_API_KEY` 或 `CONTEXT7_API_KEY`。
+- `web_fetch`：至少配置 `TAVILY_API_KEY` 或 `FIRECRAWL_API_KEY`。
+
+缺少任一最低能力时，`doctor` 和 `search` 会 fail closed，并返回缺失 capability。`SMART_SEARCH_MINIMUM_PROFILE=off` 只建议用于本地调试或单 provider 实验。
 
 常用配置项：
 
@@ -175,6 +199,16 @@ $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 | `SMART_SEARCH_API_MODE` | 主搜索模式：`auto`、`xai-responses`、`chat-completions`，默认 `auto` |
 | `SMART_SEARCH_XAI_TOOLS` | xAI Responses API 使用的工具，默认 `web_search,x_search`；只支持这两个值 |
 | `SMART_SEARCH_MODEL` | 默认模型名 |
+| `XAI_API_URL` | xAI Responses API 地址，默认 `https://api.x.ai/v1` |
+| `XAI_API_KEY` | xAI API key；配置后注册 `main_search` 的 xAI Responses provider |
+| `XAI_MODEL` | xAI Responses 模型名，默认沿用 `SMART_SEARCH_MODEL` 或 `grok-4-fast` |
+| `XAI_TOOLS` | xAI Responses 工具列表；未设置时沿用 `SMART_SEARCH_XAI_TOOLS` |
+| `OPENAI_COMPATIBLE_API_URL` | OpenAI-compatible Chat Completions 地址 |
+| `OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible API key；配置后注册 `main_search` 的兼容 provider |
+| `OPENAI_COMPATIBLE_MODEL` | OpenAI-compatible 模型名，默认沿用 `SMART_SEARCH_MODEL` |
+| `SMART_SEARCH_VALIDATION_LEVEL` | `search` 默认交叉验证强度：`fast`、`balanced`、`strict`，默认 `balanced` |
+| `SMART_SEARCH_FALLBACK_MODE` | 兜底模式：`auto` 或 `off`，默认 `auto` |
+| `SMART_SEARCH_MINIMUM_PROFILE` | 最低配置门槛：`standard` 或 `off`，默认 `standard` |
 | `SMART_SEARCH_DEBUG` | 是否打开调试日志 |
 | `SMART_SEARCH_LOG_LEVEL` | 日志级别，默认 `INFO` |
 | `SMART_SEARCH_LOG_DIR` | 日志目录 |
@@ -183,6 +217,11 @@ $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 | `SMART_SEARCH_LOG_TO_FILE` | 是否把日志写入文件 |
 | `SSL_VERIFY` | 是否校验证书，默认开启 |
 | `EXA_API_KEY` | Exa 搜索 key |
+| `CONTEXT7_API_KEY` | Context7 文档检索 key |
+| `CONTEXT7_BASE_URL` | Context7 API 地址，默认 `https://context7.com` |
+| `ZHIPU_API_KEY` | 智谱 Web Search key |
+| `ZHIPU_API_URL` | 智谱 API 地址，默认 `https://open.bigmodel.cn/api` |
+| `ZHIPU_SEARCH_ENGINE` | 智谱搜索引擎，默认 `search_std` |
 | `TAVILY_API_KEY` | Tavily key |
 | `FIRECRAWL_API_KEY` | Firecrawl key |
 
@@ -192,7 +231,7 @@ $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 smart-search doctor --format json
 ```
 
-`doctor` 会遮住 key，只显示配置是否完整、`primary_api_mode` 实际模式和各服务连通状态。`xai-responses` 模式会用无工具的最小 `/responses` 请求做连通测试；`chat-completions` 模式继续测试 `/models` 和 `/chat/completions`。
+`doctor` 会遮住 key，只显示配置是否完整、`primary_api_mode` 实际模式和各服务连通状态。`main_search_connection_tests` 会分别报告已配置的 xAI Responses 与 OpenAI-compatible；旧字段 `primary_connection_test` 保留为链上第一个 main provider 的结果。
 
 ### 常用命令
 
@@ -213,6 +252,9 @@ smart-search search "今天 OpenAI Responses API 有哪些新变化？" --extra-
 - `--platform NAME`：提示主搜索接口优先关注某个平台或来源。
 - `--model ID`：本次搜索临时指定模型，不修改默认模型。
 - `--extra-sources N`：额外从 Tavily / Firecrawl 拉取 N 条来源。
+- `--validation fast|balanced|strict`：控制交叉验证强度；默认读取 `SMART_SEARCH_VALIDATION_LEVEL`。
+- `--fallback auto|off`：控制同能力兜底；`off` 会让 provider 失败时不继续尝试同 capability 下一个 provider。
+- `--providers auto|CSV`：限制本次可用 provider，例如 `exa,context7`。
 - `--timeout SECONDS`：本次搜索最多等待多少秒。
 - `--format json|markdown`：选择输出格式。
 - `--output PATH`：同时把结果写入文件。
@@ -222,6 +264,8 @@ smart-search search "今天 OpenAI Responses API 有哪些新变化？" --extra-
 ```powershell
 smart-search exa-search "OpenAI Responses API documentation" --num-results 5 --include-highlights --format json
 ```
+
+文档检索路由会优先使用 Exa；当 Exa 失败或空结果且 Context7 已配置时，Context7 作为同类文档检索兜底。普通新闻或综合查询不会强制调用 Context7。
 
 常用参数：
 
@@ -233,6 +277,19 @@ smart-search exa-search "OpenAI Responses API documentation" --num-results 5 --i
 - `--exclude-domains CSV`：排除这些域名。
 - `--start-published-date YYYY-MM-DD`：只要某个日期之后发布的结果。
 - `--category NAME`：使用 Exa 支持的分类过滤。
+
+Context7 文档命令：
+
+```powershell
+smart-search context7-library "react" "hooks" --format json
+smart-search context7-docs "/facebook/react" "useEffect cleanup" --format json
+```
+
+智谱 Web Search 命令：
+
+```powershell
+smart-search zhipu-search "今天国内 AI 新闻" --count 5 --format json
+```
 
 根据一个 URL 找相似网页：
 
@@ -282,6 +339,15 @@ smart-search model set "your-model-name" --format json
 smart-search regression
 ```
 
+运行 provider 架构冒烟测试：
+
+```powershell
+smart-search smoke --mock --format json
+smart-search smoke --live --format json
+```
+
+`--mock` 不依赖任何真实 key，用来验证 minimum profile、routing、fallback、strict insufficient evidence 等架构路径。`--live` 会调用真实 provider；单个增强 provider 失败但同 capability 仍有可用兜底时，会出现在 `degraded_cases`，关键路径失败才会退出非 0。
+
 ### 输出格式怎么选
 
 默认用 JSON，适合 AI 助手继续解析：
@@ -317,7 +383,7 @@ smart-search exa-search "Python packaging guide" --format json --output result.j
 如果 `smart-search doctor --format json` 显示 `config_error`：
 
 1. 先运行 `smart-search setup`，按提示填写主接口地址和 key。
-2. 再运行 `smart-search config list --format json`，确认 `SMART_SEARCH_API_URL` 和 `SMART_SEARCH_API_KEY` 已保存，key 会被自动遮住。
+2. 再运行 `smart-search config list --format json`，确认 `XAI_API_KEY` 或 `OPENAI_COMPATIBLE_API_KEY` 已保存，key 会被自动遮住。
 3. 最后运行 `smart-search doctor --format json` 重新检查连通性。高级用户如果使用环境变量，可看 `config_sources` 判断当前值来自 `environment` 还是 `config_file`。
 
 如果 `search` 很慢：
@@ -383,8 +449,9 @@ smart-search
 ### Providers
 
 - Primary search endpoint: two routes are supported for broad research answers.
-  - Official xAI: when `SMART_SEARCH_API_URL=https://api.x.ai/v1`, `auto` mode uses the Responses API `/responses` endpoint with `web_search,x_search` tools.
-  - Generic relays: other OpenAI-compatible services use Chat Completions `/chat/completions` by default.
+  - Official xAI: `XAI_API_KEY` uses the Responses API `/responses` endpoint with `web_search,x_search` tools.
+  - Generic relays: `OPENAI_COMPATIBLE_API_URL` plus `OPENAI_COMPATIBLE_API_KEY` uses Chat Completions `/chat/completions`.
+  - When both are configured, they are peer `main_search` providers with xAI Responses -> OpenAI-compatible same-capability fallback.
 - Exa: good for official docs, APIs, papers, and high-quality pages.
 - Tavily: used for page extraction, site maps, and extra search sources.
 - Firecrawl: used as an extra search source and a fetch fallback.
@@ -397,12 +464,12 @@ Do not add xAI `web_search` / `x_search` tools or the old `search_parameters` fi
 
 | Command | Purpose | Providers |
 | --- | --- | --- |
-| `search` | Broad search and answer generation | Primary endpoint; with `--extra-sources`, also Tavily / Firecrawl |
+| `search` | Broad search and answer generation | Main search providers; with `--extra-sources`, also Tavily / Firecrawl |
 | `exa-search` | Official docs, APIs, papers, product pages | Exa |
 | `exa-similar` | Find pages similar to a URL | Exa |
 | `fetch` | Fetch page content | Tavily first; Firecrawl fallback if Tavily returns no content |
 | `map` | Map a site structure | Tavily |
-| `doctor` | Check config and connectivity | Primary endpoint, Exa, Tavily; Firecrawl currently checks whether a key is configured |
+| `doctor` | Check config and connectivity | Main search providers, Exa, Tavily, Zhipu, Context7; Firecrawl currently checks whether a key is configured |
 | `model` | Read or change the default model name | Local config file |
 | `regression` | Run offline regression tests | Local pytest, no real provider calls |
 
@@ -411,7 +478,7 @@ Do not add xAI `web_search` / `x_search` tools or the old `search_parameters` fi
 - If both Tavily and Firecrawl are configured, extra sources are split between them. Tavily gets about 60%, Firecrawl gets the rest.
 - If only Tavily is configured, only Tavily is used for extra sources.
 - If only Firecrawl is configured, only Firecrawl is used for extra sources.
-- If `--extra-sources` is omitted, `search` only calls the primary endpoint.
+- If `--extra-sources` is omitted, `search` only calls configured main search providers plus intent-routed validation providers.
 
 Search output separates source provenance:
 
@@ -479,11 +546,11 @@ For scripts or copy-paste setup instructions, use non-interactive mode:
 
 ```powershell
 smart-search setup --non-interactive `
-  --api-url "https://your-api.example.com/v1" `
-  --api-key "your-api-key" `
-  --api-mode "auto" `
-  --xai-tools "web_search,x_search" `
-  --model "your-model-name" `
+  --xai-api-key "your-xai-key" `
+  --xai-model "grok-4-fast" `
+  --openai-compatible-api-url "https://your-relay.example.com/v1" `
+  --openai-compatible-api-key "your-relay-key" `
+  --openai-compatible-model "your-relay-model" `
   --exa-key "your-exa-key" `
   --tavily-key "your-tavily-key" `
   --firecrawl-key "your-firecrawl-key"
@@ -495,23 +562,36 @@ Saved keys are masked when listed:
 smart-search config list --format json
 ```
 
-Advanced users and CI can still use environment variables. Environment variables override the local config file. At minimum, configure the primary search endpoint:
+Advanced users and CI can still use environment variables. Environment variables override the local config file. Main search can be xAI Responses only, OpenAI-compatible only, or both:
 
 ```powershell
-$env:SMART_SEARCH_API_URL = "https://your-api.example.com/v1"
-$env:SMART_SEARCH_API_KEY = "your-api-key"
-$env:SMART_SEARCH_API_MODE = "auto"
-$env:SMART_SEARCH_XAI_TOOLS = "web_search,x_search"
-$env:SMART_SEARCH_MODEL = "your-model-name"
+$env:XAI_API_KEY = "your-xai-key"
+$env:XAI_MODEL = "grok-4-fast"
+$env:XAI_TOOLS = "web_search,x_search"
+$env:OPENAI_COMPATIBLE_API_URL = "https://your-relay.example.com/v1"
+$env:OPENAI_COMPATIBLE_API_KEY = "your-relay-key"
+$env:OPENAI_COMPATIBLE_MODEL = "your-relay-model"
 ```
+
+Legacy `SMART_SEARCH_API_URL` / `SMART_SEARCH_API_KEY` / `SMART_SEARCH_API_MODE` / `SMART_SEARCH_MODEL` still work. `https://api.x.ai/v1` is treated as xAI Responses; other endpoints are treated as OpenAI-compatible. When the new explicit keys are present, xAI Responses and OpenAI-compatible are peer `main_search` providers.
 
 Optional providers:
 
 ```powershell
 $env:EXA_API_KEY = "your-exa-key"
+$env:CONTEXT7_API_KEY = "your-context7-key"
+$env:ZHIPU_API_KEY = "your-zhipu-key"
 $env:TAVILY_API_KEY = "your-tavily-key"
 $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 ```
+
+The default minimum profile is `SMART_SEARCH_MINIMUM_PROFILE=standard`. A distributable install must have at least one provider in each required capability:
+
+- `main_search`: at least `XAI_API_KEY`, or `OPENAI_COMPATIBLE_API_URL` plus `OPENAI_COMPATIBLE_API_KEY`; when both are configured, fallback is xAI Responses -> OpenAI-compatible within the same capability.
+- `docs_search`: at least `EXA_API_KEY` or `CONTEXT7_API_KEY`.
+- `web_fetch`: at least `TAVILY_API_KEY` or `FIRECRAWL_API_KEY`.
+
+If a required capability is missing, `doctor` and `search` fail closed with the missing capability list. Use `SMART_SEARCH_MINIMUM_PROFILE=off` only for local experiments.
 
 Common settings:
 
@@ -522,6 +602,16 @@ Common settings:
 | `SMART_SEARCH_API_MODE` | Primary mode: `auto`, `xai-responses`, or `chat-completions`; default `auto` |
 | `SMART_SEARCH_XAI_TOOLS` | xAI Responses tools, default `web_search,x_search`; only these two values are supported |
 | `SMART_SEARCH_MODEL` | Default model name |
+| `XAI_API_URL` | xAI Responses API URL, default `https://api.x.ai/v1` |
+| `XAI_API_KEY` | xAI API key; registers the xAI Responses `main_search` provider |
+| `XAI_MODEL` | xAI Responses model name, defaults to `SMART_SEARCH_MODEL` or `grok-4-fast` |
+| `XAI_TOOLS` | xAI Responses tools; falls back to `SMART_SEARCH_XAI_TOOLS` |
+| `OPENAI_COMPATIBLE_API_URL` | OpenAI-compatible Chat Completions endpoint |
+| `OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible API key; registers the compatible `main_search` provider |
+| `OPENAI_COMPATIBLE_MODEL` | OpenAI-compatible model name, defaults to `SMART_SEARCH_MODEL` |
+| `SMART_SEARCH_VALIDATION_LEVEL` | Default cross-validation level for `search`: `fast`, `balanced`, or `strict`; default `balanced` |
+| `SMART_SEARCH_FALLBACK_MODE` | Same-capability fallback mode: `auto` or `off`; default `auto` |
+| `SMART_SEARCH_MINIMUM_PROFILE` | Minimum profile gate: `standard` or `off`; default `standard` |
 | `SMART_SEARCH_DEBUG` | Enable debug logs |
 | `SMART_SEARCH_LOG_LEVEL` | Log level, defaults to `INFO` |
 | `SMART_SEARCH_LOG_DIR` | Log directory |
@@ -530,6 +620,11 @@ Common settings:
 | `SMART_SEARCH_LOG_TO_FILE` | Write logs to a file |
 | `SSL_VERIFY` | Verify TLS certificates, enabled by default |
 | `EXA_API_KEY` | Exa key |
+| `CONTEXT7_API_KEY` | Context7 documentation search key |
+| `CONTEXT7_BASE_URL` | Context7 API base URL, default `https://context7.com` |
+| `ZHIPU_API_KEY` | Zhipu Web Search key |
+| `ZHIPU_API_URL` | Zhipu API base URL, default `https://open.bigmodel.cn/api` |
+| `ZHIPU_SEARCH_ENGINE` | Zhipu search engine, default `search_std` |
 | `TAVILY_API_KEY` | Tavily key |
 | `FIRECRAWL_API_KEY` | Firecrawl key |
 
@@ -539,7 +634,7 @@ Check configuration:
 smart-search doctor --format json
 ```
 
-`doctor` masks keys and reports config, resolved `primary_api_mode`, and provider status. In `xai-responses` mode it tests `/responses` with a minimal no-tool request; in `chat-completions` mode it keeps the `/models` plus `/chat/completions` checks.
+`doctor` masks keys and reports config, resolved `primary_api_mode`, and provider status. `main_search_connection_tests` reports each configured xAI Responses and OpenAI-compatible provider separately; the legacy `primary_connection_test` field remains as the first main provider check.
 
 ### Common Commands
 
@@ -557,9 +652,12 @@ smart-search search "latest OpenAI Responses API changes" --extra-sources 3 --ti
 
 Useful options:
 
-- `--platform NAME`: ask the primary endpoint to focus on a platform or source.
+- `--platform NAME`: ask the selected main search provider to focus on a platform or source.
 - `--model ID`: use a model for this run without changing the default.
 - `--extra-sources N`: fetch N extra sources from Tavily / Firecrawl.
+- `--validation fast|balanced|strict`: control cross-validation level; defaults to `SMART_SEARCH_VALIDATION_LEVEL`.
+- `--fallback auto|off`: control same-capability fallback; `off` stops after the first matching provider.
+- `--providers auto|CSV`: restrict providers for this run, for example `exa,context7`.
 - `--timeout SECONDS`: hard timeout for the search.
 - `--format json|markdown`: output format.
 - `--output PATH`: also write the rendered output to a file.
@@ -569,6 +667,8 @@ Search docs or APIs:
 ```powershell
 smart-search exa-search "OpenAI Responses API documentation" --num-results 5 --include-highlights --format json
 ```
+
+Docs routing prefers Exa. If Exa fails or returns no results and Context7 is configured, Context7 is used as the same-capability fallback. General news or broad web queries do not force Context7.
 
 Useful options:
 
@@ -580,6 +680,19 @@ Useful options:
 - `--exclude-domains CSV`: exclude these domains.
 - `--start-published-date YYYY-MM-DD`: only results after this date.
 - `--category NAME`: Exa category filter.
+
+Context7 documentation commands:
+
+```powershell
+smart-search context7-library "react" "hooks" --format json
+smart-search context7-docs "/facebook/react" "useEffect cleanup" --format json
+```
+
+Zhipu Web Search command:
+
+```powershell
+smart-search zhipu-search "today China AI news" --count 5 --format json
+```
 
 Find similar pages:
 
@@ -629,6 +742,15 @@ Run offline regression tests:
 smart-search regression
 ```
 
+Run provider architecture smoke tests:
+
+```powershell
+smart-search smoke --mock --format json
+smart-search smoke --live --format json
+```
+
+`--mock` uses no real keys and validates the minimum profile gate, routing, fallback, and strict insufficient-evidence path. `--live` calls real providers; a single enhancement provider can be reported in `degraded_cases` when the same capability still has a working fallback, while critical failures still exit non-zero.
+
 ### Output Format
 
 Use JSON by default when another tool or agent will parse the result:
@@ -663,8 +785,8 @@ smart-search exa-search "Python packaging guide" --format json --output result.j
 
 If `smart-search doctor --format json` returns `config_error`:
 
-1. Run `smart-search setup` and enter the primary endpoint URL and key.
-2. Run `smart-search config list --format json` and confirm `SMART_SEARCH_API_URL` and `SMART_SEARCH_API_KEY` are saved. Keys are masked automatically.
+1. Run `smart-search setup` and enter at least one main search provider key.
+2. Run `smart-search config list --format json` and confirm `XAI_API_KEY` or `OPENAI_COMPATIBLE_API_KEY` is saved. Keys are masked automatically.
 3. Run `smart-search doctor --format json` again. Advanced users who rely on environment variables can inspect `config_sources` to see whether a value came from `environment` or `config_file`.
 
 If `search` is slow:

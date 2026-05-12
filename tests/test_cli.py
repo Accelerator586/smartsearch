@@ -38,6 +38,10 @@ def test_each_subcommand_help_exits_successfully(capsys):
         ["map", "--help"],
         ["exa-search", "--help"],
         ["exa-similar", "--help"],
+        ["zhipu-search", "--help"],
+        ["context7-library", "--help"],
+        ["context7-docs", "--help"],
+        ["smoke", "--help"],
         ["doctor", "--help"],
         ["setup", "--help"],
         ["config", "--help"],
@@ -73,7 +77,7 @@ def test_search_help_exposes_timeout(capsys):
 
 
 def test_search_outputs_json_and_file(monkeypatch, capsys):
-    async def fake_search(query, platform="", model="", extra_sources=0):
+    async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
         return {
             "ok": True,
             "query": query,
@@ -103,7 +107,7 @@ def test_search_outputs_json_and_file(monkeypatch, capsys):
 
 
 def test_search_timeout_outputs_json_and_exit_4(monkeypatch, capsys):
-    async def slow_search(query, platform="", model="", extra_sources=0):
+    async def slow_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
         await asyncio.sleep(1)
         return {
             "ok": True,
@@ -137,7 +141,7 @@ def test_search_timeout_outputs_json_and_exit_4(monkeypatch, capsys):
 
 
 def test_markdown_search_includes_sources(monkeypatch, capsys):
-    async def fake_search(query, platform="", model="", extra_sources=0):
+    async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
         return {
             "ok": True,
             "content": "Answer",
@@ -156,7 +160,7 @@ def test_markdown_search_includes_sources(monkeypatch, capsys):
 
 
 def test_markdown_search_labels_primary_and_extra_sources(monkeypatch, capsys):
-    async def fake_search(query, platform="", model="", extra_sources=0):
+    async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
         return {
             "ok": True,
             "content": "Answer",
@@ -304,6 +308,26 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "web_search",
         "--model",
         "test-model",
+        "--xai-api-key",
+        "xai-test-secret",
+        "--xai-model",
+        "xai-model",
+        "--openai-compatible-api-url",
+        "https://relay.example.com/v1",
+        "--openai-compatible-api-key",
+        "relay-test-secret",
+        "--openai-compatible-model",
+        "relay-model",
+        "--validation-level",
+        "balanced",
+        "--fallback-mode",
+        "auto",
+        "--minimum-profile",
+        "standard",
+        "--zhipu-key",
+        "zhipu-secret",
+        "--context7-key",
+        "ctx-secret",
     ])
 
     out = capsys.readouterr().out
@@ -313,7 +337,70 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["SMART_SEARCH_API_MODE"] == "chat-completions"
     assert saved["SMART_SEARCH_XAI_TOOLS"] == "web_search"
     assert saved["SMART_SEARCH_MODEL"] == "test-model"
+    assert saved["XAI_API_KEY"] == "xai-test-secret"
+    assert saved["XAI_MODEL"] == "xai-model"
+    assert saved["OPENAI_COMPATIBLE_API_URL"] == "https://relay.example.com/v1"
+    assert saved["OPENAI_COMPATIBLE_API_KEY"] == "relay-test-secret"
+    assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"
+    assert saved["SMART_SEARCH_VALIDATION_LEVEL"] == "balanced"
+    assert saved["SMART_SEARCH_FALLBACK_MODE"] == "auto"
+    assert saved["SMART_SEARCH_MINIMUM_PROFILE"] == "standard"
+    assert saved["ZHIPU_API_KEY"] == "zhipu-secret"
+    assert saved["CONTEXT7_API_KEY"] == "ctx-secret"
     assert "sk-test-secret" not in out
+
+
+def test_search_passes_routing_options(monkeypatch, capsys):
+    captured = {}
+
+    async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
+        captured.update({"validation": validation, "fallback": fallback, "providers": providers})
+        return {"ok": True, "content": "Answer", "sources": [], "sources_count": 0}
+
+    monkeypatch.setattr(cli.service, "search", fake_search)
+
+    code = cli.main([
+        "search",
+        "query",
+        "--validation",
+        "strict",
+        "--fallback",
+        "off",
+        "--providers",
+        "grok,zhipu",
+    ])
+
+    assert code == cli.EXIT_OK
+    assert captured == {"validation": "strict", "fallback": "off", "providers": "grok,zhipu"}
+    assert json.loads(capsys.readouterr().out)["content"] == "Answer"
+
+
+def test_smoke_command_uses_service(monkeypatch, capsys):
+    async def fake_smoke(mode="mock"):
+        return {"ok": True, "mode": mode, "failed_cases": [], "cases": []}
+
+    monkeypatch.setattr(cli.service, "smoke", fake_smoke)
+
+    code = cli.main(["smoke", "--mode", "mock"])
+
+    assert code == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["mode"] == "mock"
+
+
+def test_smoke_command_accepts_mock_and_live_flags(monkeypatch, capsys):
+    captured = []
+
+    async def fake_smoke(mode="mock"):
+        captured.append(mode)
+        return {"ok": True, "mode": mode, "failed_cases": [], "cases": []}
+
+    monkeypatch.setattr(cli.service, "smoke", fake_smoke)
+
+    assert cli.main(["smoke", "--mock"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["mode"] == "mock"
+    assert cli.main(["smoke", "--live"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["mode"] == "live"
+    assert captured == ["mock", "live"]
 
 
 def test_setup_interactive_does_not_print_current_secret(monkeypatch, capsys):
@@ -357,7 +444,7 @@ def test_setup_interactive_does_not_print_current_secret(monkeypatch, capsys):
     assert "sk-test-secret" not in captured.err
     assert "sk-test-secret" not in prompt_text
     assert "exa-test-secret" not in prompt_text
-    assert "Primary API key [configured]" in prompt_text
+    assert "Legacy primary API key optional [configured]" in prompt_text
 
 
 def test_regression_invokes_pytest(monkeypatch):
@@ -376,3 +463,4 @@ def test_regression_invokes_pytest(monkeypatch):
     assert "-m" in captured["cmd"]
     assert "pytest" in captured["cmd"]
     assert "tests/test_cli.py" in captured["cmd"]
+    assert "tests/test_smoke.py" in captured["cmd"]

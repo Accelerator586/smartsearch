@@ -6,24 +6,47 @@ from urllib.parse import urlparse
 class Config:
     _instance = None
     _SETUP_COMMAND = (
-        "Run `smart-search setup`, or set SMART_SEARCH_API_URL and "
-        "SMART_SEARCH_API_KEY in the environment, then run "
+        "Run `smart-search setup`, or configure XAI_API_KEY and/or "
+        "OPENAI_COMPATIBLE_API_URL plus OPENAI_COMPATIBLE_API_KEY, then run "
         "`smart-search doctor --format json`."
     )
     _DEFAULT_MODEL = "grok-4-fast"
     _DEFAULT_API_MODE = "auto"
     _DEFAULT_XAI_TOOLS = "web_search,x_search"
+    _DEFAULT_VALIDATION_LEVEL = "balanced"
+    _DEFAULT_FALLBACK_MODE = "auto"
+    _DEFAULT_MINIMUM_PROFILE = "standard"
     _ALLOWED_API_MODES = {"auto", "xai-responses", "chat-completions"}
     _ALLOWED_XAI_TOOLS = {"web_search", "x_search"}
+    _ALLOWED_VALIDATION_LEVELS = {"fast", "balanced", "strict"}
+    _ALLOWED_FALLBACK_MODES = {"auto", "off"}
+    _ALLOWED_MINIMUM_PROFILES = {"standard", "off"}
     _CONFIG_KEYS = {
         "SMART_SEARCH_API_URL",
         "SMART_SEARCH_API_KEY",
         "SMART_SEARCH_API_MODE",
         "SMART_SEARCH_XAI_TOOLS",
         "SMART_SEARCH_MODEL",
+        "XAI_API_URL",
+        "XAI_API_KEY",
+        "XAI_MODEL",
+        "XAI_TOOLS",
+        "OPENAI_COMPATIBLE_API_URL",
+        "OPENAI_COMPATIBLE_API_KEY",
+        "OPENAI_COMPATIBLE_MODEL",
+        "SMART_SEARCH_VALIDATION_LEVEL",
+        "SMART_SEARCH_FALLBACK_MODE",
+        "SMART_SEARCH_MINIMUM_PROFILE",
         "EXA_API_KEY",
         "EXA_BASE_URL",
         "EXA_TIMEOUT_SECONDS",
+        "CONTEXT7_API_KEY",
+        "CONTEXT7_BASE_URL",
+        "CONTEXT7_TIMEOUT_SECONDS",
+        "ZHIPU_API_KEY",
+        "ZHIPU_API_URL",
+        "ZHIPU_SEARCH_ENGINE",
+        "ZHIPU_TIMEOUT_SECONDS",
         "TAVILY_API_KEY",
         "TAVILY_API_URL",
         "TAVILY_ENABLED",
@@ -140,7 +163,22 @@ class Config:
         config_data = self._load_config_file()
         config_data[key] = value
         self._save_config_file(config_data)
-        if key in {"SMART_SEARCH_MODEL", "SMART_SEARCH_API_URL", "SMART_SEARCH_API_MODE"}:
+        if key in {
+            "SMART_SEARCH_MODEL",
+            "SMART_SEARCH_API_URL",
+            "SMART_SEARCH_API_KEY",
+            "SMART_SEARCH_API_MODE",
+            "XAI_API_URL",
+            "XAI_API_KEY",
+            "XAI_MODEL",
+            "XAI_TOOLS",
+            "OPENAI_COMPATIBLE_API_URL",
+            "OPENAI_COMPATIBLE_API_KEY",
+            "OPENAI_COMPATIBLE_MODEL",
+            "SMART_SEARCH_VALIDATION_LEVEL",
+            "SMART_SEARCH_FALLBACK_MODE",
+            "SMART_SEARCH_MINIMUM_PROFILE",
+        }:
             self._cached_model = None
 
     def unset_config_value(self, key: str) -> None:
@@ -153,7 +191,22 @@ class Config:
             if new_key == key:
                 config_data.pop(old_key, None)
         self._save_config_file(config_data)
-        if key in {"SMART_SEARCH_MODEL", "SMART_SEARCH_API_URL", "SMART_SEARCH_API_MODE"}:
+        if key in {
+            "SMART_SEARCH_MODEL",
+            "SMART_SEARCH_API_URL",
+            "SMART_SEARCH_API_KEY",
+            "SMART_SEARCH_API_MODE",
+            "XAI_API_URL",
+            "XAI_API_KEY",
+            "XAI_MODEL",
+            "XAI_TOOLS",
+            "OPENAI_COMPATIBLE_API_URL",
+            "OPENAI_COMPATIBLE_API_KEY",
+            "OPENAI_COMPATIBLE_MODEL",
+            "SMART_SEARCH_VALIDATION_LEVEL",
+            "SMART_SEARCH_FALLBACK_MODE",
+            "SMART_SEARCH_MINIMUM_PROFILE",
+        }:
             self._cached_model = None
 
     def config_path_info(self) -> dict:
@@ -203,6 +256,35 @@ class Config:
     def smart_search_xai_tools_raw(self) -> str:
         return self._get_config_value("SMART_SEARCH_XAI_TOOLS", self._DEFAULT_XAI_TOOLS) or self._DEFAULT_XAI_TOOLS
 
+    @property
+    def xai_api_url(self) -> str:
+        return self._get_config_value("XAI_API_URL", "https://api.x.ai/v1") or "https://api.x.ai/v1"
+
+    @property
+    def xai_api_key(self) -> str | None:
+        return self._get_config_value("XAI_API_KEY")
+
+    @property
+    def xai_model(self) -> str:
+        return self._get_config_value("XAI_MODEL") or self._base_model_value()
+
+    @property
+    def xai_tools_raw(self) -> str:
+        return self._get_config_value("XAI_TOOLS") or self.smart_search_xai_tools_raw
+
+    @property
+    def openai_compatible_api_url(self) -> str | None:
+        return self._get_config_value("OPENAI_COMPATIBLE_API_URL")
+
+    @property
+    def openai_compatible_api_key(self) -> str | None:
+        return self._get_config_value("OPENAI_COMPATIBLE_API_KEY")
+
+    @property
+    def openai_compatible_model(self) -> str:
+        model = self._get_config_value("OPENAI_COMPATIBLE_MODEL") or self._base_model_value()
+        return self.apply_model_suffix_for_url(model, self.openai_compatible_api_url or "")
+
     def resolve_primary_api_mode(self, api_url: str) -> str:
         mode = self.smart_search_api_mode
         if mode not in self._ALLOWED_API_MODES:
@@ -217,8 +299,8 @@ class Config:
             return "xai-responses"
         return "chat-completions"
 
-    def parse_xai_tools(self) -> list[str]:
-        raw = self.smart_search_xai_tools_raw
+    def parse_xai_tools(self, raw: str | None = None) -> list[str]:
+        raw = raw or self.smart_search_xai_tools_raw
         tools: list[str] = []
         invalid: list[str] = []
         seen: set[str] = set()
@@ -237,6 +319,44 @@ class Config:
             invalid_text = ", ".join(invalid)
             raise ValueError(f"Invalid SMART_SEARCH_XAI_TOOLS: {invalid_text}. Supported values: {allowed}")
         return tools
+
+    def _validated_enum(self, key: str, default: str, allowed: set[str]) -> str:
+        value = (self._get_config_value(key, default) or default).strip().lower()
+        if value not in allowed:
+            allowed_text = ", ".join(sorted(allowed))
+            raise ValueError(f"Invalid {key}: {value}. Supported values: {allowed_text}")
+        return value
+
+    def _enum_info(self, key: str, default: str, allowed: set[str]) -> tuple[str, str]:
+        value = (self._get_config_value(key, default) or default).strip().lower()
+        if value not in allowed:
+            allowed_text = ", ".join(sorted(allowed))
+            return value, f"Invalid {key}: {value}. Supported values: {allowed_text}"
+        return value, ""
+
+    @property
+    def validation_level(self) -> str:
+        return self._validated_enum(
+            "SMART_SEARCH_VALIDATION_LEVEL",
+            self._DEFAULT_VALIDATION_LEVEL,
+            self._ALLOWED_VALIDATION_LEVELS,
+        )
+
+    @property
+    def fallback_mode(self) -> str:
+        return self._validated_enum(
+            "SMART_SEARCH_FALLBACK_MODE",
+            self._DEFAULT_FALLBACK_MODE,
+            self._ALLOWED_FALLBACK_MODES,
+        )
+
+    @property
+    def minimum_profile(self) -> str:
+        return self._validated_enum(
+            "SMART_SEARCH_MINIMUM_PROFILE",
+            self._DEFAULT_MINIMUM_PROFILE,
+            self._ALLOWED_MINIMUM_PROFILES,
+        )
 
     @property
     def tavily_enabled(self) -> bool:
@@ -284,25 +404,32 @@ class Config:
         self._safe_mkdir(tmp_log_dir)
         return tmp_log_dir
 
+    @staticmethod
+    def apply_model_suffix_for_url(model: str, api_url: str) -> str:
+        if "openrouter" in api_url and ":online" not in model:
+            return f"{model}:online"
+        return model
+
     def _apply_model_suffix(self, model: str) -> str:
         try:
             url = self.smart_search_api_url
         except ValueError:
             return model
-        if "openrouter" in url and ":online" not in model:
-            return f"{model}:online"
-        return model
+        return self.apply_model_suffix_for_url(model, url)
+
+    def _base_model_value(self) -> str:
+        return (
+            os.getenv("SMART_SEARCH_MODEL")
+            or self._get_config_value("SMART_SEARCH_MODEL")
+            or self._DEFAULT_MODEL
+        )
 
     @property
     def smart_search_model(self) -> str:
         if self._cached_model is not None:
             return self._cached_model
 
-        model = (
-            os.getenv("SMART_SEARCH_MODEL")
-            or self._get_config_value("SMART_SEARCH_MODEL")
-            or self._DEFAULT_MODEL
-        )
+        model = self._base_model_value()
         self._cached_model = self._apply_model_suffix(model)
         return self._cached_model
 
@@ -346,24 +473,81 @@ class Config:
     def exa_timeout(self) -> float:
         return float(self._get_config_value("EXA_TIMEOUT_SECONDS", "30") or "30")
 
+    @property
+    def context7_api_key(self) -> str | None:
+        return self._get_config_value("CONTEXT7_API_KEY")
+
+    @property
+    def context7_base_url(self) -> str:
+        return self._get_config_value("CONTEXT7_BASE_URL", "https://context7.com") or "https://context7.com"
+
+    @property
+    def context7_timeout(self) -> float:
+        return float(self._get_config_value("CONTEXT7_TIMEOUT_SECONDS", "30") or "30")
+
+    @property
+    def zhipu_api_key(self) -> str | None:
+        return self._get_config_value("ZHIPU_API_KEY")
+
+    @property
+    def zhipu_api_url(self) -> str:
+        return self._get_config_value("ZHIPU_API_URL", "https://open.bigmodel.cn/api") or "https://open.bigmodel.cn/api"
+
+    @property
+    def zhipu_search_engine(self) -> str:
+        return self._get_config_value("ZHIPU_SEARCH_ENGINE", "search_std") or "search_std"
+
+    @property
+    def zhipu_timeout(self) -> float:
+        return float(self._get_config_value("ZHIPU_TIMEOUT_SECONDS", "30") or "30")
+
     def get_config_info(self) -> dict:
-        try:
-            api_url = self.smart_search_api_url
-            api_key_raw = self.smart_search_api_key
-            api_key_masked = self._mask_api_key(api_key_raw)
+        config_parameter_errors: list[str] = []
+        legacy_api_url_raw = self._get_config_value("SMART_SEARCH_API_URL")
+        legacy_api_key_raw = self._get_config_value("SMART_SEARCH_API_KEY")
+        explicit_main_configured = bool(
+            self.xai_api_key
+            or (self.openai_compatible_api_url and self.openai_compatible_api_key)
+            or (legacy_api_url_raw and legacy_api_key_raw)
+        )
+        api_url = legacy_api_url_raw or "未配置"
+        api_key_masked = self._mask_api_key(legacy_api_key_raw) if legacy_api_key_raw else "未配置"
+        if explicit_main_configured:
             config_status = "ok: 配置完整"
-        except ValueError as e:
-            api_url = "未配置"
-            api_key_masked = "未配置"
-            config_status = f"config_error: {str(e)}"
+        elif legacy_api_key_raw and not legacy_api_url_raw:
+            config_status = (
+                "config_error: Legacy primary API URL 未配置；请配置 XAI_API_KEY，"
+                "或 OPENAI_COMPATIBLE_API_URL + OPENAI_COMPATIBLE_API_KEY，"
+                "或补齐 SMART_SEARCH_API_URL。"
+            )
+        else:
+            config_status = f"config_error: {self._SETUP_COMMAND}"
 
         smart_search_model = self.smart_search_model
         try:
             primary_api_mode = self.resolve_primary_api_mode(api_url) if api_url != "未配置" else self.smart_search_api_mode
         except ValueError as e:
             primary_api_mode = self.smart_search_api_mode
-            if config_status.startswith("ok:"):
-                config_status = f"config_error: {str(e)}"
+            config_parameter_errors.append(str(e))
+
+        validation_level, validation_error = self._enum_info(
+            "SMART_SEARCH_VALIDATION_LEVEL",
+            self._DEFAULT_VALIDATION_LEVEL,
+            self._ALLOWED_VALIDATION_LEVELS,
+        )
+        fallback_mode, fallback_error = self._enum_info(
+            "SMART_SEARCH_FALLBACK_MODE",
+            self._DEFAULT_FALLBACK_MODE,
+            self._ALLOWED_FALLBACK_MODES,
+        )
+        minimum_profile, minimum_error = self._enum_info(
+            "SMART_SEARCH_MINIMUM_PROFILE",
+            self._DEFAULT_MINIMUM_PROFILE,
+            self._ALLOWED_MINIMUM_PROFILES,
+        )
+        config_parameter_errors.extend(error for error in (validation_error, fallback_error, minimum_error) if error)
+        if config_parameter_errors and config_status.startswith("ok:"):
+            config_status = f"config_error: {'; '.join(config_parameter_errors)}"
 
         return {
             "SMART_SEARCH_API_URL": api_url,
@@ -371,6 +555,16 @@ class Config:
             "SMART_SEARCH_API_MODE": self.smart_search_api_mode,
             "SMART_SEARCH_XAI_TOOLS": self.smart_search_xai_tools_raw,
             "SMART_SEARCH_MODEL": smart_search_model,
+            "XAI_API_URL": self.xai_api_url,
+            "XAI_API_KEY": self._mask_api_key(self.xai_api_key) if self.xai_api_key else "未配置",
+            "XAI_MODEL": self.xai_model,
+            "XAI_TOOLS": self.xai_tools_raw,
+            "OPENAI_COMPATIBLE_API_URL": self.openai_compatible_api_url or "未配置",
+            "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else "未配置",
+            "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,
+            "SMART_SEARCH_VALIDATION_LEVEL": validation_level,
+            "SMART_SEARCH_FALLBACK_MODE": fallback_mode,
+            "SMART_SEARCH_MINIMUM_PROFILE": minimum_profile,
             "SMART_SEARCH_DEBUG": self.debug_enabled,
             "SMART_SEARCH_LOG_LEVEL": self.log_level,
             "SMART_SEARCH_LOG_DIR": str(self.log_dir),
@@ -388,10 +582,18 @@ class Config:
             "EXA_API_KEY": self._mask_api_key(self.exa_api_key) if self.exa_api_key else "未配置",
             "EXA_BASE_URL": self.exa_base_url,
             "EXA_TIMEOUT_SECONDS": self.exa_timeout,
+            "CONTEXT7_API_KEY": self._mask_api_key(self.context7_api_key) if self.context7_api_key else "未配置",
+            "CONTEXT7_BASE_URL": self.context7_base_url,
+            "CONTEXT7_TIMEOUT_SECONDS": self.context7_timeout,
+            "ZHIPU_API_KEY": self._mask_api_key(self.zhipu_api_key) if self.zhipu_api_key else "未配置",
+            "ZHIPU_API_URL": self.zhipu_api_url,
+            "ZHIPU_SEARCH_ENGINE": self.zhipu_search_engine,
+            "ZHIPU_TIMEOUT_SECONDS": self.zhipu_timeout,
             "primary_api_mode": primary_api_mode,
             "primary_api_mode_source": self.get_config_source("SMART_SEARCH_API_MODE"),
             "config_file": str(self.config_file),
             "config_sources": self.get_config_sources(),
+            "config_parameter_errors": config_parameter_errors,
             "config_status": config_status
         }
 
