@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const packageRoot = path.resolve(__dirname, "..", "..");
+const callerCwd = process.env.INIT_CWD || process.cwd();
 const venvDir = path.join(packageRoot, ".smart-search-python");
 const pythonPath =
   process.platform === "win32"
@@ -23,8 +24,12 @@ const child = spawn(
   pythonPath,
   ["-m", "smart_search.cli", ...process.argv.slice(2)],
   {
-    cwd: packageRoot,
+    cwd: callerCwd,
     stdio: "inherit",
+    env: {
+      ...process.env,
+      SMART_SEARCH_PACKAGE_ROOT: packageRoot
+    },
     windowsHide: true
   }
 );

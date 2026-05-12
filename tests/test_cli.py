@@ -1,6 +1,7 @@
 import json
 import asyncio
 from smart_search import cli
+from smart_search import skill_installer
 
 
 class GbkStdout:
@@ -511,6 +512,129 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert "th-test-secret" not in out
 
 
+def test_setup_non_interactive_installs_selected_skills(monkeypatch, tmp_path, capsys):
+    saved = {}
+
+    monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main([
+        "setup",
+        "--non-interactive",
+        "--install-skills",
+        "codex,claude,cursor",
+        "--skills-root",
+        str(tmp_path),
+    ])
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_OK
+    assert saved == {}
+    assert data["skills"]["installed_count"] == 3
+    assert (tmp_path / ".agents" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".claude" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".cursor" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+
+
+def test_setup_skip_skills_writes_no_skill_files(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main([
+        "setup",
+        "--non-interactive",
+        "--skip-skills",
+        "--install-skills",
+        "codex",
+        "--skills-root",
+        str(tmp_path),
+    ])
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_OK
+    assert "skills" not in data
+    assert not (tmp_path / ".agents" / "skills" / "smart-search-cli").exists()
+
+
+def test_setup_unknown_skill_target_returns_parameter_error(monkeypatch, capsys):
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main(["setup", "--non-interactive", "--install-skills", "unknown"])
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert "Unknown skill target" in data["error"]
+
+
+def test_setup_guided_installs_tui_selected_skill_targets(monkeypatch, tmp_path, capsys):
+    saved = {}
+    answers = iter(["skip", "skip", "skip", "n"])
+    checkbox_calls = []
+
+    def fake_checkbox(message, choices):
+        checkbox_calls.append(message)
+        if "AI tools" in message:
+            return ["codex", "cursor"]
+        return []
+
+    monkeypatch.setattr(cli, "_checkbox_with_tui", fake_checkbox)
+    monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+    monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": saved.copy()})
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+
+    code = cli.main(["setup", "--lang", "en", "--skills-root", str(tmp_path)])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert code == cli.EXIT_OK
+    assert data["skills"]["installed_count"] == 2
+    assert (tmp_path / ".agents" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".cursor" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert "Install the smart-search-cli skill" in captured.err
+    assert "Skill install result" in captured.err
+
+
+def test_setup_banner_falls_back_when_pyfiglet_unavailable(monkeypatch, capsys):
+    real_import = __import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pyfiglet":
+            raise ImportError("missing")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+
+    cli._write_setup_banner("en")
+    captured = capsys.readouterr()
+
+    assert "Smart Search" in captured.err
+    assert "CLI-first multi-source search" in captured.err
+
+
+def test_skill_installer_parse_aliases_and_all(tmp_path):
+    assert skill_installer.parse_skill_targets("claude-code,github-copilot,agentskills") == [
+        "claude",
+        "copilot",
+        "codex",
+    ]
+    assert len(skill_installer.parse_skill_targets("all")) == len(skill_installer.SKILL_TARGETS)
+
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text("---\nname: smart-search-cli\n---\n", encoding="utf-8")
+    result = skill_installer.install_skill_targets(
+        ["codex"],
+        project_root=tmp_path / "project",
+        source_root=source,
+    )
+
+    assert result["ok"] is True
+    assert result["installed_count"] == 1
+    assert (tmp_path / "project" / ".agents" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+
+
 def test_tavily_url_normalization_cases():
     cases = {
         "pool.example.com": "https://pool.example.com/api/tavily",
@@ -574,7 +698,7 @@ def test_setup_guided_zh_groups_minimum_capabilities(monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
 
-    code = cli.main(["setup", "--lang", "zh"])
+    code = cli.main(["setup", "--skip-skills", "--lang", "zh"])
     captured = capsys.readouterr()
     data = json.loads(captured.out)
 
@@ -622,7 +746,7 @@ def test_setup_guided_uses_tui_defaults_for_configured_providers(monkeypatch, ca
     monkeypatch.setattr("builtins.input", lambda prompt: "")
     monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "")
 
-    code = cli.main(["setup", "--lang", "en"])
+    code = cli.main(["setup", "--skip-skills", "--lang", "en"])
     captured = capsys.readouterr()
     data = json.loads(captured.out)
 
@@ -652,7 +776,7 @@ def test_setup_guided_en_reports_missing_minimum(monkeypatch, capsys):
     monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": saved.copy()})
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
 
-    code = cli.main(["setup", "--lang", "en"])
+    code = cli.main(["setup", "--skip-skills", "--lang", "en"])
     captured = capsys.readouterr()
     data = json.loads(captured.out)
 
@@ -682,7 +806,7 @@ def test_setup_guided_masks_configured_url_defaults(monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
 
-    code = cli.main(["setup", "--lang", "en"])
+    code = cli.main(["setup", "--skip-skills", "--lang", "en"])
     captured = capsys.readouterr()
 
     assert code == cli.EXIT_OK
@@ -705,7 +829,7 @@ def test_setup_guided_main_search_can_save_openai_compatible_peer(monkeypatch, c
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
 
-    code = cli.main(["setup", "--lang", "en"])
+    code = cli.main(["setup", "--skip-skills", "--lang", "en"])
     captured = capsys.readouterr()
     data = json.loads(captured.out)
 
@@ -735,7 +859,7 @@ def test_setup_guided_main_search_can_save_both_peer_providers(monkeypatch, caps
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
 
-    code = cli.main(["setup", "--lang", "en"])
+    code = cli.main(["setup", "--skip-skills", "--lang", "en"])
     data = json.loads(capsys.readouterr().out)
 
     assert code == cli.EXIT_OK
@@ -757,7 +881,7 @@ def test_setup_interactive_language_prompt(monkeypatch, capsys):
     monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": saved.copy()})
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
 
-    code = cli.main(["setup"])
+    code = cli.main(["setup", "--skip-skills"])
     captured = capsys.readouterr()
 
     assert code == cli.EXIT_OK

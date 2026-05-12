@@ -11,6 +11,13 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from . import service
+from .skill_installer import (
+    DEFAULT_SKILL_TARGET_IDS,
+    SKILL_TARGETS,
+    SkillInstallError,
+    install_skill_targets,
+    parse_skill_targets,
+)
 
 
 EXIT_OK = 0
@@ -50,6 +57,14 @@ MODEL_COMMAND_ALIASES = {
 
 TAVILY_DEFAULT_API_URL = "https://api.tavily.com"
 FIRECRAWL_DEFAULT_API_URL = "https://api.firecrawl.dev/v2"
+
+_STATIC_SMART_SEARCH_BANNER = r"""
+ ____                       _     ____                      _
+/ ___| _ __ ___   __ _ _ __| |_  / ___|  ___  __ _ _ __ ___| |__
+\___ \| '_ ` _ \ / _` | '__| __| \___ \ / _ \/ _` | '__/ __| '_ \
+ ___) | | | | | | (_| | |  | |_   ___) |  __/ (_| | | | (__| | | |
+|____/|_| |_| |_|\__,_|_|   \__| |____/ \___|\__,_|_|  \___|_| |_|
+""".strip("\n")
 
 
 def _get_version() -> str:
@@ -172,6 +187,22 @@ def _write_stdout(text: str) -> None:
 
 def _write_stderr(text: str) -> None:
     sys.stderr.write(_stream_safe(sys.stderr, text))
+
+
+def _smart_search_banner_text() -> str:
+    try:
+        import pyfiglet
+
+        banner = pyfiglet.figlet_format("Smart Search", font="slant")
+        return banner.rstrip()
+    except Exception:
+        return _STATIC_SMART_SEARCH_BANNER
+
+
+def _write_setup_banner(lang: str) -> None:
+    banner = _smart_search_banner_text()
+    tagline = _t(lang, "CLI-first multi-source search for AI agents", "CLI-first multi-source search for AI agents")
+    _write_stderr(f"\n{banner}\n\n   Smart Search\n   {tagline}\n")
 
 
 def _write_panel(text: str, lang: str) -> None:
@@ -549,6 +580,49 @@ def _select_setup_language(lang: str = "") -> str:
     return "zh"
 
 
+def _skill_target_choices(selected: list[str], lang: str) -> list[dict[str, Any]]:
+    selected_set = set(selected)
+    choices: list[dict[str, Any]] = []
+    for target in SKILL_TARGETS:
+        label = target.label
+        name = f"{label} ({target.relative_root})"
+        choices.append({"name": name, "value": target.target_id, "enabled": target.target_id in selected_set})
+    return choices
+
+
+def _prompt_skill_targets(lang: str) -> list[str]:
+    _write_stderr(
+        _t(
+            lang,
+            "\n[可选] 安装 smart-search-cli skill\n用途: 让项目里的 AI 工具知道优先调用 smart-search CLI。\n提示: 只安装 Smart Search skill；不会初始化 Trellis，也不会生成 hooks、agents 或 commands。\n",
+            "\n[Optional] Install the smart-search-cli skill\nPurpose: teach AI tools in this project to call the smart-search CLI first.\nNote: this only installs the Smart Search skill; it does not initialize Trellis or generate hooks, agents, or commands.\n",
+        )
+    )
+    tui_value = _checkbox_with_tui(
+        _t(lang, "安装给哪些 AI 工具使用?", "Install for which AI tools?"),
+        _skill_target_choices(DEFAULT_SKILL_TARGET_IDS, lang),
+    )
+    if tui_value is not None:
+        return [target.target_id for target in SKILL_TARGETS if target.target_id in set(tui_value)]
+
+    default_text = ",".join(DEFAULT_SKILL_TARGET_IDS)
+    _write_stderr(
+        _t(
+            lang,
+            f"安装 skill 目标 [codex,claude,cursor,.../all/skip] ({default_text}): ",
+            f"Skill install targets [codex,claude,cursor,.../all/skip] ({default_text}): ",
+        )
+    )
+    raw = input("").strip()
+    if not raw:
+        return list(DEFAULT_SKILL_TARGET_IDS)
+    try:
+        return parse_skill_targets(raw)
+    except SkillInstallError as e:
+        _write_stderr(f"{e}\n")
+        return list(DEFAULT_SKILL_TARGET_IDS)
+
+
 def _setup_choice(prompt: str, choices: set[str], default: str) -> str:
     value = _prompt_choice(prompt, default).strip().lower()
     aliases = {
@@ -839,8 +913,17 @@ def _write_setup_examples(lang: str) -> None:
     )
 
 
-def _run_guided_setup_prompts(values: dict[str, str], current: dict[str, str], lang: str) -> None:
+def _run_guided_setup_prompts(
+    values: dict[str, str],
+    current: dict[str, str],
+    lang: str,
+    *,
+    skill_targets: list[str] | None = None,
+    show_banner: bool = True,
+) -> None:
     config_file = service.config_path()["config_file"]
+    if show_banner:
+        _write_setup_banner(lang)
     _write_panel(
         _t(
             lang,
@@ -852,10 +935,29 @@ def _run_guided_setup_prompts(values: dict[str, str], current: dict[str, str], l
     _write_setup_keep_note(lang)
     _write_setup_examples(lang)
     _write_setup_status(_setup_status_from_values(_merge_setup_values(current, values)), lang)
+    if skill_targets is not None:
+        skill_targets[:] = _prompt_skill_targets(lang)
     _prompt_main_search(values, current, lang)
     _prompt_docs_search(values, current, lang)
     _prompt_web_fetch(values, current, lang)
     _prompt_optional_enhancements(values, current, lang)
+
+
+def _write_skill_install_summary(result: dict[str, Any], lang: str) -> None:
+    if not result.get("selected"):
+        _write_stderr(_t(lang, "\nSkill 安装: 已跳过。\n", "\nSkill install: skipped.\n"))
+        return
+    _write_stderr(
+        _t(
+            lang,
+            f"\nSkill 安装结果: installed {result.get('installed_count', 0)}, skipped {result.get('skipped_count', 0)}, failed {result.get('failed_count', 0)}\n",
+            f"\nSkill install result: installed {result.get('installed_count', 0)}, skipped {result.get('skipped_count', 0)}, failed {result.get('failed_count', 0)}\n",
+        )
+    )
+    for item in result.get("installed", []):
+        _write_stderr(f"  [OK] {item.get('label')} -> {item.get('path')}\n")
+    for item in result.get("failed", []):
+        _write_stderr(f"  [FAILED] {item.get('label')} -> {item.get('path')}: {item.get('error')}\n")
 
 
 def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str], lang: str) -> None:
@@ -999,6 +1101,12 @@ def _run_config(args: argparse.Namespace) -> int:
 
 
 def _run_setup(args: argparse.Namespace) -> int:
+    try:
+        explicit_skill_targets = parse_skill_targets(args.install_skills) if args.install_skills else []
+    except SkillInstallError as e:
+        data = {"ok": False, "error_type": "parameter_error", "error": str(e), "config_file": service.config_path()["config_file"]}
+        return _print_result("setup", data, args.format, args.output)
+
     values = {
         "SMART_SEARCH_API_URL": args.api_url,
         "SMART_SEARCH_API_KEY": args.api_key,
@@ -1024,13 +1132,18 @@ def _run_setup(args: argparse.Namespace) -> int:
         "FIRECRAWL_API_KEY": args.firecrawl_key,
     }
 
+    lang = args.lang if args.lang in {"zh", "en"} else "zh"
+    selected_skill_targets: list[str] = list(explicit_skill_targets)
+
     if not args.non_interactive:
         current = service.config_list(show_secrets=True)["values"]
+        _write_setup_banner(args.lang if args.lang in {"zh", "en"} else "zh")
         lang = _select_setup_language(args.lang)
         if args.advanced:
             _run_advanced_setup_prompts(values, current, lang)
         else:
-            _run_guided_setup_prompts(values, current, lang)
+            skill_targets_for_prompt = selected_skill_targets if not args.skip_skills and not selected_skill_targets else None
+            _run_guided_setup_prompts(values, current, lang, skill_targets=skill_targets_for_prompt, show_banner=False)
 
     saved: dict[str, str] = {}
     for key, value in values.items():
@@ -1038,12 +1151,24 @@ def _run_setup(args: argparse.Namespace) -> int:
             result = service.config_set(key, value)
             saved[key] = result.get("value", "")
 
-    data = {"ok": True, "config_file": service.config_path()["config_file"], "saved": saved}
+    skill_result = None
+    if not args.skip_skills and selected_skill_targets:
+        skill_result = install_skill_targets(selected_skill_targets, project_root=args.skills_root)
+
+    ok = True if skill_result is None else bool(skill_result.get("ok", False))
+    data = {"ok": ok, "config_file": service.config_path()["config_file"], "saved": saved}
+    if skill_result is not None:
+        data["skills"] = skill_result
+        if not skill_result.get("ok", False):
+            data["error_type"] = "runtime_error"
+            data["error"] = "One or more skill targets failed to install."
     if not args.non_interactive:
         current_after = service.config_list(show_secrets=True)["values"]
         final_values = _merge_setup_values(current_after, values)
         final_status = _setup_status_from_values(final_values)
         _write_stderr(_t(lang, "\n保存完成。\n", "\nSaved.\n"))
+        if skill_result is not None:
+            _write_skill_install_summary(skill_result, lang)
         _write_setup_status(final_status, lang, final=True)
         missing = [capability for capability in ("main_search", "docs_search", "web_fetch") if not final_status[capability]["ok"]]
         if missing:
@@ -1207,6 +1332,13 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--non-interactive", action="store_true", help="Only save values passed as flags.")
     setup_parser.add_argument("--lang", choices=["zh", "en"], default="", help="Interactive setup language.")
     setup_parser.add_argument("--advanced", action="store_true", help="Show every low-level config key in interactive setup.")
+    setup_parser.add_argument("--skip-skills", action="store_true", help="Skip project-local smart-search-cli skill installation.")
+    setup_parser.add_argument(
+        "--install-skills",
+        default="",
+        help="Comma-separated AI tool targets for smart-search-cli skill installation, e.g. codex,claude,cursor.",
+    )
+    setup_parser.add_argument("--skills-root", default="", help="Project root for skill installation; defaults to the current directory.")
     setup_parser.add_argument("--api-url", default="", help="Save SMART_SEARCH_API_URL.")
     setup_parser.add_argument("--api-key", default="", help="Save SMART_SEARCH_API_KEY.")
     setup_parser.add_argument("--api-mode", default="", help="Save SMART_SEARCH_API_MODE.")

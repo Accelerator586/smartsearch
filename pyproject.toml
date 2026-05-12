@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
     "httpx[socks]>=0.28.0",
     "InquirerPy>=0.3.4,<0.4",
+    "pyfiglet>=1.0,<2",
     "rich>=13.9,<16",
     "tenacity>=8.0.0",
 ]
@@ -23,6 +24,13 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+smart_search = [
+    "assets/skills/smart-search-cli/SKILL.md",
+    "assets/skills/smart-search-cli/agents/*.yaml",
+    "assets/skills/smart-search-cli/references/*.md",
+]
 
 [project.scripts]
 smart-search = "smart_search.cli:main"
