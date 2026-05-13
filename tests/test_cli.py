@@ -606,6 +606,30 @@ def test_setup_non_interactive_installs_selected_skills(monkeypatch, tmp_path, c
     assert (tmp_path / ".cursor" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
 
 
+def test_setup_non_interactive_installs_hermes_skill_under_home(monkeypatch, tmp_path, capsys):
+    fake_home = tmp_path / "home"
+
+    monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+    monkeypatch.setattr(skill_installer.Path, "home", lambda: fake_home)
+
+    code = cli.main([
+        "setup",
+        "--non-interactive",
+        "--install-skills",
+        "hermes-agent",
+        "--skills-root",
+        str(tmp_path / "project"),
+    ])
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_OK
+    assert data["skills"]["installed_count"] == 1
+    assert data["skills"]["installed"][0]["target"] == "hermes"
+    assert (fake_home / ".hermes" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert not (tmp_path / "project" / ".hermes" / "skills" / "smart-search-cli").exists()
+
+
 def test_setup_skip_skills_writes_no_skill_files(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
     monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
@@ -684,10 +708,11 @@ def test_setup_banner_falls_back_when_pyfiglet_unavailable(monkeypatch, capsys):
 
 
 def test_skill_installer_parse_aliases_and_all(tmp_path):
-    assert skill_installer.parse_skill_targets("claude-code,github-copilot,agentskills") == [
+    assert skill_installer.parse_skill_targets("claude-code,github-copilot,agentskills,hermes-agent") == [
         "claude",
         "copilot",
         "codex",
+        "hermes",
     ]
     assert len(skill_installer.parse_skill_targets("all")) == len(skill_installer.SKILL_TARGETS)
 

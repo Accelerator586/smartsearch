@@ -143,7 +143,7 @@ smart-search doctor --format json
 
 交互式 `setup` 会先显示 Smart Search 标题、选择语言，然后可以把 `smart-search-cli` skill 安装到当前项目的 AI 工具目录，再按能力分组配置。默认界面支持方向键移动、空格勾选、回车确认；只有 API key 和自定义 URL 需要粘贴输入：
 
-- skill 注入：可选安装到 Codex / Claude Code / Cursor / OpenCode / GitHub Copilot 等项目本地目录，只安装 `smart-search-cli`，不会初始化 Trellis，也不会生成 hooks、agents 或 commands。
+- skill 注入：可选安装到 Codex / Claude Code / Cursor / OpenCode / GitHub Copilot 等项目本地目录，也支持 Hermes Agent 的 `~/.hermes/skills/`；只安装 `smart-search-cli`，不会初始化 Trellis，也不会生成 hooks、agents 或 commands。
 - `main_search` 主搜索：xAI Responses 或 OpenAI-compatible 至少一个。
 - `docs_search` 文档搜索：Exa 或 Context7 至少一个。
 - `web_fetch` 网页抓取：Tavily 或 Firecrawl 至少一个。
@@ -171,11 +171,14 @@ smart-search setup --advanced
 smart-search setup --skip-skills
 ```
 
-如果想用脚本把 skill 注入到某个项目目录：
+如果想用脚本把 skill 注入到某个项目目录，或安装给 Hermes Agent：
 
 ```powershell
 smart-search setup --non-interactive --install-skills codex,claude,cursor --skills-root "D:\path\to\project"
+smart-search setup --non-interactive --install-skills hermes
 ```
+
+提示：`--skills-root` 只影响 Codex / Claude Code / Cursor 等项目本地目标；Hermes Agent 按官方约定安装到当前用户的 `~/.hermes/skills/`。
 
 `setup` 会把配置保存到当前用户的本机配置文件。你可以查看配置文件路径：
 
@@ -615,7 +618,7 @@ smart-search doctor --format json
 
 Interactive `setup` asks for language first, then configures by capability group. The default UI supports arrow-key navigation, Space to select, and Enter to confirm; only API keys and custom URLs need pasted text:
 
-- skill injection: optionally installs `smart-search-cli` into project-local AI tool directories such as Codex, Claude Code, Cursor, OpenCode, and GitHub Copilot. It only installs the skill; it does not initialize Trellis or generate hooks, agents, or commands.
+- skill injection: optionally installs `smart-search-cli` into project-local AI tool directories such as Codex, Claude Code, Cursor, OpenCode, and GitHub Copilot. It also supports Hermes Agent's `~/.hermes/skills/`. It only installs the skill; it does not initialize Trellis or generate hooks, agents, or commands.
 - `main_search`: at least one of xAI Responses or OpenAI-compatible.
 - `docs_search`: at least one of Exa or Context7.
 - `web_fetch`: at least one of Tavily or Firecrawl.
@@ -643,11 +646,14 @@ To configure providers without installing project-local skills:
 smart-search setup --skip-skills
 ```
 
-To install the skill into a project from a script:
+To install the skill into a project from a script, or install it for Hermes Agent:
 
 ```powershell
 smart-search setup --non-interactive --install-skills codex,claude,cursor --skills-root "D:\path\to\project"
+smart-search setup --non-interactive --install-skills hermes
 ```
+
+Note: `--skills-root` only affects project-local targets such as Codex, Claude Code, and Cursor. Hermes Agent installs to the current user's `~/.hermes/skills/` by convention.
 
 `setup` saves values to the current user's local Smart Search config file. To inspect the path:
 

@@ -106,15 +106,17 @@ Interactive setup behavior:
 - The grouped wizard should use an arrow-key / Space / Enter selector when the
   packaged TUI dependencies are available, with a text fallback for non-TTY
   and tests.
-- Skill installation is project-local only. It installs the bundled
-  `smart-search-cli` skill into selected AI-tool skill directories and must not
-  run `trellis init`, create hooks, create agents, create commands, or modify
-  other skills.
+- Skill installation installs the bundled `smart-search-cli` skill into
+  selected AI-tool skill directories and must not run `trellis init`, create
+  hooks, create agents, create commands, or modify other skills. Most targets
+  are project-local; Hermes Agent installs to the current user's
+  `~/.hermes/skills/` by convention.
 - Skill targets are `codex`, `claude`, `cursor`, `opencode`, `copilot`,
   `gemini`, `kiro`, `qoder`, `codebuddy`, `droid`, `pi`, `kilo`,
-  `antigravity`, and `windsurf`. `--skip-skills` disables skill installation.
-  `--install-skills codex,claude,cursor` selects targets explicitly, and
-  `--skills-root PATH` overrides the project root used for installation.
+  `antigravity`, `windsurf`, and `hermes`. `--skip-skills` disables skill
+  installation. `--install-skills codex,claude,cursor,hermes` selects targets
+  explicitly, and `--skills-root PATH` overrides the project root used for
+  project-local targets.
 - Required groups are `main_search`, `docs_search`, and `web_fetch`; `web_search` is optional reinforcement.
 - `--lang zh|en` skips the language question.
 - `--advanced` shows low-level config keys one by one for compatibility with older setup behavior and does not show the skill prompt unless `--install-skills` is explicit.

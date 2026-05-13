@@ -100,6 +100,7 @@ smart-search map "https://docs.example.com" --instructions "Find API reference p
 smart-search setup
 smart-search setup --lang en
 smart-search setup --advanced
+smart-search setup --non-interactive --install-skills hermes
 smart-search setup --non-interactive --tavily-api-url "https://api.tavily.com" --tavily-key "key"
 smart-search --version
 smart-search config path --format json

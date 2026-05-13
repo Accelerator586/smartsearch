@@ -17,6 +17,7 @@ class SkillTarget:
     label: str
     relative_root: str
     default: bool = False
+    root_scope: str = "project"
 
     @property
     def skill_relative_path(self) -> str:
@@ -38,6 +39,7 @@ SKILL_TARGETS: tuple[SkillTarget, ...] = (
     SkillTarget("kilo", "Kilo CLI", ".kilocode/skills"),
     SkillTarget("antigravity", "Antigravity", ".agent/skills"),
     SkillTarget("windsurf", "Windsurf", ".windsurf/skills"),
+    SkillTarget("hermes", "Hermes Agent", ".hermes/skills", root_scope="home"),
 )
 
 SKILL_TARGET_BY_ID = {target.target_id: target for target in SKILL_TARGETS}
@@ -54,6 +56,8 @@ _TARGET_ALIASES = {
     "factory-droid": "droid",
     "pi-agent": "pi",
     "kilo-cli": "kilo",
+    "hermes-agent": "hermes",
+    "nous-hermes": "hermes",
 }
 
 
@@ -174,6 +178,7 @@ def install_skill_targets(
 ) -> dict[str, Any]:
     root = Path(project_root) if project_root is not None else Path.cwd()
     root = root.expanduser().resolve()
+    home_root = Path.home().expanduser().resolve()
     selected = [SKILL_TARGET_BY_ID[target_id] for target_id in target_ids]
     if not selected:
         return {
@@ -194,7 +199,8 @@ def install_skill_targets(
     failed: list[dict[str, str]] = []
 
     for target in selected:
-        dest = root / Path(target.skill_relative_path)
+        target_root = home_root if target.root_scope == "home" else root
+        dest = target_root / Path(target.skill_relative_path)
         try:
             for rel_path, content in files:
                 file_path = dest / Path(rel_path)

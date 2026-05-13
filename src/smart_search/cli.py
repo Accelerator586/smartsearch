@@ -615,7 +615,8 @@ def _skill_target_choices(selected: list[str], lang: str) -> list[dict[str, Any]
     choices: list[dict[str, Any]] = []
     for target in SKILL_TARGETS:
         label = target.label
-        name = f"{label} ({target.relative_root})"
+        root_label = "~" if target.root_scope == "home" else "project"
+        name = f"{label} ({root_label}/{target.relative_root})"
         choices.append({"name": name, "value": target.target_id, "enabled": target.target_id in selected_set})
     return choices
 
@@ -1374,7 +1375,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument(
         "--install-skills",
         default="",
-        help="Comma-separated AI tool targets for smart-search-cli skill installation, e.g. codex,claude,cursor.",
+        help="Comma-separated AI tool targets for smart-search-cli skill installation, e.g. codex,claude,cursor,hermes.",
     )
     setup_parser.add_argument("--skills-root", default="", help="Project root for skill installation; defaults to the current directory.")
     setup_parser.add_argument("--api-url", default="", help="Save SMART_SEARCH_API_URL.")
