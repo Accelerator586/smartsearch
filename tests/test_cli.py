@@ -1192,6 +1192,7 @@ def test_regression_invokes_pytest(monkeypatch):
     assert "pytest" in captured["cmd"]
     assert "tests/test_cli.py" in captured["cmd"]
     assert "tests/test_smoke.py" in captured["cmd"]
+    assert "tests/test_release_workflow.py" in captured["cmd"]
 
 
 def test_regression_alias_invokes_pytest(monkeypatch):

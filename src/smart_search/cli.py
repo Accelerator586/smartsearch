@@ -1232,6 +1232,7 @@ def _run_regression() -> int:
         "tests/test_providers_new.py",
         "tests/test_smoke.py",
         "tests/test_regression.py",
+        "tests/test_release_workflow.py",
     ]
     if not all((root / pattern).exists() for pattern in patterns):
         print("Packaged install has no test files; running mock smoke regression instead.", file=sys.stderr)

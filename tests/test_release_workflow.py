@@ -1,0 +1,97 @@
+import json
+import subprocess
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+RESOLVER = ROOT / "npm" / "scripts" / "resolve-prerelease-version.js"
+WORKFLOW = ROOT / ".github" / "workflows" / "publish-npm.yml"
+
+
+def run_resolver(base_version: str, versions: list[str]) -> str:
+    result = subprocess.run(
+        [
+            "node",
+            str(RESOLVER),
+            "--package",
+            "@konbakuyomu/smart-search",
+            "--base",
+            base_version,
+            "--id",
+            "beta",
+            "--versions-json",
+            json.dumps(versions),
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return result.stdout
+
+
+def test_resolver_counts_legacy_dev_slots_per_base_version():
+    versions = [
+        "0.1.9-dev.30",
+        "0.1.9",
+        "0.1.10-dev.32",
+        "0.1.10-dev.34",
+        "0.1.10",
+    ]
+
+    assert run_resolver("0.1.9", versions) == "0.1.9-beta.2"
+    assert run_resolver("0.1.10", versions) == "0.1.10-beta.3"
+
+
+def test_resolver_prefers_existing_beta_numbers_when_higher_than_legacy_count():
+    versions = [
+        "0.1.10-dev.32",
+        "0.1.10-dev.34",
+        "0.1.10-beta.5",
+        "0.1.10",
+    ]
+
+    assert run_resolver("0.1.10", versions) == "0.1.10-beta.6"
+
+
+def test_resolver_starts_at_beta_one_without_prior_versions():
+    assert run_resolver("0.2.0", []) == "0.2.0-beta.1"
+
+
+def test_publish_workflow_uses_beta_lane_and_prerelease_guardrails():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "resolve-prerelease-version.js" in workflow
+    assert "-dev.${GITHUB_RUN_NUMBER}" not in workflow
+    assert "tag=\"next\"" in workflow
+    assert "tag=\"latest\"" in workflow
+    assert "Refusing to publish prerelease version" in workflow
+    assert "gh release create" in workflow
+    assert "--prerelease" in workflow
+
+
+def test_release_docs_explain_beta_lane_and_npm_immutability():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    public_contract = (ROOT / "skills" / "smart-search-cli" / "references" / "cli-contract.md").read_text(
+        encoding="utf-8"
+    )
+    packaged_contract = (
+        ROOT / "src" / "smart_search" / "assets" / "skills" / "smart-search-cli" / "references" / "cli-contract.md"
+    ).read_text(encoding="utf-8")
+
+    required_markers = [
+        "Release lanes",
+        "<package.json version>-beta.N",
+        "dist-tag `next`",
+        "0.1.10-beta.3",
+        "workflow_dispatch",
+        "target_ref",
+        "npm versions are immutable",
+        "cannot be renamed in place",
+    ]
+    for marker in required_markers:
+        assert marker in readme
+    for marker in ["Release Lanes", "<package.json version>-beta.N", "npm versions are immutable"]:
+        assert marker in public_contract
+        assert marker in packaged_contract

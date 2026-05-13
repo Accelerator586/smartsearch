@@ -6,9 +6,25 @@ on:
       - main
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: "Commit SHA, branch, or tag to publish from"
+        required: true
+      version:
+        description: "Exact npm version to publish, for example 0.1.10-beta.1"
+        required: true
+      npm_tag:
+        description: "npm dist-tag to publish with"
+        required: true
+        default: "next"
+      create_github_release:
+        description: "Create or update the matching GitHub release"
+        required: true
+        default: "true"
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -18,6 +34,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target_ref || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -41,15 +59,26 @@ jobs:
         shell: bash
         run: |
           base_version="$(node -p "require('./package.json').version")"
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+          package_name="$(node -p "require('./package.json').name")"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+            tag="${{ inputs.npm_tag }}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
-            tag="latest"
-            node npm/scripts/set-package-version.js "$version"
+            if [[ "$version" == *-* ]]; then
+              tag="next"
+            else
+              tag="latest"
+            fi
           else
-            version="${base_version}-dev.${GITHUB_RUN_NUMBER}"
+            version="$(node npm/scripts/resolve-prerelease-version.js --package "$package_name" --base "$base_version" --id beta)"
             tag="next"
-            node npm/scripts/set-package-version.js "$version"
           fi
+          if [[ "$tag" == "latest" && "$version" == *-* ]]; then
+            echo "Refusing to publish prerelease version $version with npm dist-tag latest." >&2
+            exit 1
+          fi
+          node npm/scripts/set-package-version.js "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
@@ -77,3 +106,28 @@ jobs:
       - name: Skip existing npm version
         if: steps.npm-version.outputs.published == 'true'
         run: echo "npm version ${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} already exists; skipping publish."
+
+      - name: Create or update GitHub release
+        if: github.event_name != 'workflow_dispatch' || inputs.create_github_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          npm_tag="${{ steps.release.outputs.tag }}"
+          tag_name="v${version}"
+          target="$(git rev-parse HEAD)"
+          notes="npm package: \`${{ steps.package.outputs.name }}@${version}\`
+npm dist-tag: \`${npm_tag}\`
+workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          create_release_args=()
+          edit_release_args=()
+          if [[ "$version" == *-* ]]; then
+            create_release_args=(--prerelease --latest=false)
+            edit_release_args=(--prerelease)
+          fi
+          if gh release view "$tag_name" >/dev/null 2>&1; then
+            gh release edit "$tag_name" --title "$tag_name" --notes "$notes" "${edit_release_args[@]}"
+          else
+            gh release create "$tag_name" --target "$target" --title "$tag_name" --notes "$notes" "${create_release_args[@]}"
+          fi

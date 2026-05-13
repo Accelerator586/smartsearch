@@ -987,3 +987,25 @@ npm install
 npm test
 npm pack --dry-run
 ```
+
+### Release lanes
+
+Stable releases use Git tags and npm `latest`:
+
+```powershell
+git tag v0.1.10
+git push origin v0.1.10
+```
+
+Test releases use npm prereleases and do not move `latest`. A push to `main`
+publishes the next `<package.json version>-beta.N` version under npm dist-tag `next`;
+`N` resets for each stable base version. For example, after
+`0.1.10-beta.1` and `0.1.10-beta.2`, the next `main` publish is
+`0.1.10-beta.3`.
+
+GitHub Actions also supports manual backfill for historical test builds through
+`workflow_dispatch`. Use an explicit `target_ref` plus an exact version such as
+`0.1.9-beta.1`, and publish it with a non-`latest` tag such as `backfill`.
+npm versions are immutable:
+old `*-dev.*` packages cannot be renamed in place, only superseded by new
+`*-beta.N` packages and optionally deprecated later with npm owner credentials.
