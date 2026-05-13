@@ -54,8 +54,22 @@ jobs:
       - name: Test package
         run: npm test
 
+      - name: Detect stable release bump commit
+        id: stable-bump
+        if: github.event_name == 'push' && github.ref_type == 'branch'
+        shell: bash
+        run: |
+          subject="$(git log -1 --pretty=%s)"
+          if [[ "$subject" =~ ^chore\(release\):[[:space:]]+bump[[:space:]]+version[[:space:]]+to[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Detected stable release bump commit; npm latest will be published by the matching v* tag."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Prepare npm release metadata
         id: release
+        if: steps.stable-bump.outputs.skip != 'true'
         shell: bash
         env:
           DISPATCH_VERSION: ${{ github.event.inputs.version }}
@@ -87,6 +101,7 @@ jobs:
 
       - name: Read package metadata
         id: package
+        if: steps.stable-bump.outputs.skip != 'true'
         shell: bash
         run: |
           echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
@@ -94,6 +109,7 @@ jobs:
 
       - name: Check whether this npm version already exists
         id: npm-version
+        if: steps.stable-bump.outputs.skip != 'true'
         shell: bash
         run: |
           if npm view "${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
@@ -103,14 +119,15 @@ jobs:
           fi
 
       - name: Publish to npm
-        if: steps.npm-version.outputs.published != 'true'
+        if: steps.stable-bump.outputs.skip != 'true' && steps.npm-version.outputs.published != 'true'
         run: npm publish --access public --provenance --tag "${{ steps.release.outputs.tag }}"
 
       - name: Skip existing npm version
-        if: steps.npm-version.outputs.published == 'true'
+        if: steps.stable-bump.outputs.skip != 'true' && steps.npm-version.outputs.published == 'true'
         run: echo "npm version ${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} already exists; skipping publish."
 
       - name: Create or update GitHub release
+        if: steps.stable-bump.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           CREATE_GITHUB_RELEASE: ${{ github.event.inputs.create_github_release }}

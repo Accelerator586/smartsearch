@@ -66,6 +66,9 @@ def test_publish_workflow_uses_beta_lane_and_prerelease_guardrails():
     assert "github.event.inputs.version" in workflow
     assert "github.event.inputs.npm_tag" in workflow
     assert "resolve-prerelease-version.js" in workflow
+    assert "Detect stable release bump commit" in workflow
+    assert "chore\\(release\\)" in workflow
+    assert "stable-bump.outputs.skip != 'true'" in workflow
     assert "-dev.${GITHUB_RUN_NUMBER}" not in workflow
     assert "&& inputs." not in workflow
     assert "|| inputs." not in workflow
@@ -91,6 +94,8 @@ def test_release_docs_explain_beta_lane_and_npm_immutability():
         "<package.json version>-beta.N",
         "dist-tag `next`",
         "0.1.10-beta.3",
+        "chore(release): bump version to X.Y.Z",
+        "vX.Y.Z",
         "workflow_dispatch",
         "target_ref",
         "npm versions are immutable",
@@ -107,6 +112,7 @@ def test_release_docs_explain_beta_lane_and_npm_immutability():
     contract_markers = [
         "Release Lanes",
         "<package.json version>-beta.N",
+        "chore(release): bump version to X.Y.Z",
         "npm versions are immutable",
         "Release Closeout Lessons",
         "GitHub release creation fails",

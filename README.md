@@ -993,13 +993,16 @@ npm pack --dry-run
 Stable releases use Git tags and npm `latest`:
 
 ```powershell
-git tag v0.1.10
-git push origin v0.1.10
+git tag v0.1.11
+git push origin v0.1.11
 ```
 
 Test releases use npm prereleases and do not move `latest`. A push to `main`
 publishes the next `<package.json version>-beta.N` version under npm dist-tag `next`;
-`N` resets for each stable base version. For example, after
+`N` resets for each stable base version. To avoid publishing an unwanted beta
+for a stable bump, the `chore(release): bump version to X.Y.Z` branch commit is
+skipped by the workflow and the matching `vX.Y.Z` tag publishes npm `latest`.
+For example, after
 `0.1.10-beta.1` and `0.1.10-beta.2`, the next `main` publish is
 `0.1.10-beta.3`.
 
