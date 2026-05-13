@@ -72,6 +72,7 @@ def test_publish_workflow_uses_beta_lane_and_prerelease_guardrails():
     assert "tag=\"next\"" in workflow
     assert "tag=\"latest\"" in workflow
     assert "Refusing to publish prerelease version" in workflow
+    assert "notes=\"$(printf" in workflow
     assert "gh release create" in workflow
     assert "--prerelease" in workflow
 

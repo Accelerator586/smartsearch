@@ -124,9 +124,7 @@ jobs:
           npm_tag="${{ steps.release.outputs.tag }}"
           tag_name="v${version}"
           target="$(git rev-parse HEAD)"
-          notes="npm package: \`${{ steps.package.outputs.name }}@${version}\`
-npm dist-tag: \`${npm_tag}\`
-workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          notes="$(printf 'npm package: `%s@%s`\nnpm dist-tag: `%s`\nworkflow run: %s/%s/actions/runs/%s\n' '${{ steps.package.outputs.name }}' "$version" "$npm_tag" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
           create_release_args=()
           edit_release_args=()
           if [[ "$version" == *-* ]]; then
