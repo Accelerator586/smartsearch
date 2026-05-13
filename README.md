@@ -96,9 +96,13 @@ smart-search
 
 `smart-search` 的默认 `search` 仍然是快速搜索入口；Deep Research 是 `smart-search-cli` skill 的可选工作流，不是新的 CLI 命令，也不依赖 MCP session。用户说“帮我深度搜索...”“深度调研...”时，AI 助手会先生成一个 `research_plan`，再像拼积木一样组合现有命令。
 
-Deep Research 计划至少包含 `mode`、`question`、`difficulty`、`evidence_policy`、`steps`、`final_answer_policy`。`steps[].tool` 只使用现有 CLI 积木：`search`、`exa-search`、`zhipu-search`、`context7-docs`、`fetch`、`map`；每一步都要写明用途、完整命令和输出文件路径。
+Deep Research 不是固定题材配方。行情、选型、技术文档、新闻政策、真假核验、用户给 URL 这些都只是用户语言示例，不是 schema 里的固定枚举。skill 会先判断 `intent_signals`，例如是否强时效、是否是 docs/API、是否给了 URL、是否需要权威来源、风险高不高、是否要交叉验证，再生成 `capability_plan`。
 
-默认链路是：不确定配置时先 `doctor`，用 `search --validation balanced --extra-sources 3` 做广泛发现，用 `exa-search` / `zhipu-search` 找更可靠来源，对关键 URL 跑 `fetch` 抓正文，最终只把已抓到正文的内容当作结论证据。`primary_sources` 和 `extra_sources` 在 Deep Research 里只是候选来源，不能直接当作每句话的证明。
+Deep Research 计划至少包含 `mode`、`question`、`difficulty`、`intent_signals`、`capability_plan`、`evidence_policy`、`steps`、`gap_check`、`final_answer_policy`。`steps[].tool` 只使用现有 CLI 积木：`search`、`exa-search`、`exa-similar`、`zhipu-search`、`context7-library`、`context7-docs`、`fetch`、`map`；每一步都要写明用途、完整命令和输出文件路径。`doctor` 只是配置预检，不算 research step。
+
+能力边界是：`search` 做广泛发现和综合回答，并读取现有 `routing_decision` / `provider_attempts` / `fallback_used` / `source_warning`；`exa-search` 做官方文档、API、论文、产品页、可信网页、已知域名和发布时间过滤等低噪声来源发现；`exa-similar` 从一个可靠 URL 扩展相邻来源；`zhipu-search` 补中文、国内、时效或域名过滤来源；`context7-library` / `context7-docs` 只用于库、框架、SDK、API 文档；`map` 只看站点结构；`fetch` 抓正文，是关键结论的证据入口。
+
+默认链路是：不确定配置时先 `doctor`，用 `search --validation balanced --extra-sources 1..3` 做广泛发现，再按能力补 `exa-search` / `exa-similar` / `zhipu-search` / `context7-*` / `map`，对关键 URL 跑 `fetch` 抓正文，最后做一次 `gap_check`：没有正文证据的关键结论，要继续 fetch 或降级为未验证候选。`primary_sources` 和 `extra_sources` 在 Deep Research 里只是候选来源，不能直接当作每句话的证明。
 
 ### 安装
 
@@ -579,9 +583,13 @@ Important: `extra_sources` are not automatic fact verification. `sources_count >
 
 Default `smart-search search` remains the fast search entrypoint. Deep Research is an optional `smart-search-cli` skill workflow, not a new CLI command and not an MCP-session dependency. When the user asks for "deep search", "deep research", or similar multi-source verification, the AI agent first creates a `research_plan`, then composes existing CLI commands like building blocks.
 
-The plan includes `mode`, `question`, `difficulty`, `evidence_policy`, `steps`, and `final_answer_policy`. `steps[].tool` may only use existing CLI blocks: `search`, `exa-search`, `zhipu-search`, `context7-docs`, `fetch`, and `map`; each step must include its purpose, full command, and output path.
+Deep Research is not a fixed topic recipe system. Market research, product comparison, technical docs, news or policy, claim verification, and URL-first prompts are examples of user language, not required schema enums. The skill first infers `intent_signals`, such as recency, docs/API intent, known URL, source authority need, claim risk, cross-validation need, and breadth/depth budget, then creates a `capability_plan`.
 
-The default chain is: run `doctor` when config is uncertain, use `search --validation balanced --extra-sources 3` for broad discovery, use `exa-search` / `zhipu-search` for source-first discovery, fetch key URLs, and cite only fetched page text for claim-level evidence. In Deep Research, `primary_sources` and `extra_sources` are candidates until fetched.
+The plan includes `mode`, `question`, `difficulty`, `intent_signals`, `capability_plan`, `evidence_policy`, `steps`, `gap_check`, and `final_answer_policy`. `steps[].tool` may only use existing CLI blocks: `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`; each step must include its purpose, full command, and output path. `doctor` is preflight, not a research step.
+
+Capability boundaries: `search` is for broad discovery and synthesis, using existing `routing_decision` / `provider_attempts` / `fallback_used` / `source_warning` as routing evidence; `exa-search` is for low-noise official/API/paper/product/trusted-page discovery; `exa-similar` expands from a known reliable URL; `zhipu-search` reinforces Chinese, domestic, current, or domain-filtered discovery; `context7-library` / `context7-docs` are only for library, framework, SDK, and API docs; `map` explores site structure; `fetch` extracts page text and is required before claim-level conclusions.
+
+The default chain is: run `doctor` when config is uncertain, use `search --validation balanced --extra-sources 1..3` for broad discovery, add `exa-search` / `exa-similar` / `zhipu-search` / `context7-*` / `map` only when their capability matches the intent, fetch key URLs, then run `gap_check`. Unsupported key claims must be fetched or downgraded to unverified candidates. In Deep Research, `primary_sources` and `extra_sources` are candidates until fetched.
 
 ### Installation
 

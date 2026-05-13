@@ -106,32 +106,47 @@ Smoke output includes `ok`, `mode`, `failed_cases`, `cases`, `provider_attempts`
 
 ## Deep Research Skill Contract
 
-Deep Research is an optional skill-layer workflow for prompts such as `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, and selection/comparison research. It is not a new public CLI command and must not change default `smart-search search` behavior. The AI agent composes existing CLI commands; the CLI performs execution and writes JSON/Markdown evidence.
+Deep Research is an optional skill-layer capability orchestration workflow for prompts such as `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, and selection/comparison research. It is not a new public CLI command and must not change default `smart-search search` behavior. The AI agent infers intent signals, composes existing CLI commands, and lets the CLI perform execution and write JSON/Markdown evidence.
+
+Deep Research must not require fixed topic recipe ids such as `current_market_research`, `product_comparison_research`, `technical_docs_research`, `news_or_policy_research`, `claim_verification_research`, or `url_first_research`. Those phrases may appear as prompt examples, but they are not schema modes or routing enums.
 
 Before execution, the skill should create a `research_plan` JSON artifact in the agent's working notes. This artifact is not emitted by the CLI. Required fields are:
 
 - `mode`: always `deep_research`.
 - `question`: the user's research question.
 - `difficulty`: `standard` or `high`.
+- `intent_signals`: dimensional signals such as `recency_requirement`, `docs_api_intent`, `locale_domain_scope`, `known_url`, `source_authority_need`, `claim_risk`, `cross_validation_need`, and `breadth_depth_budget`.
+- `capability_plan`: the selected capability needs and the CLI tools chosen for each need.
 - `evidence_policy`: default `fetch_before_claim`.
 - `steps`: ordered CLI command steps.
+- `gap_check`: how the agent verifies that key claims have fetched evidence or downgrades unsupported claims to unverified candidates.
 - `final_answer_policy`: how to cite fetched evidence and list unverified candidates.
 
-Each `steps[]` item must include `tool`, `purpose`, `command`, and `output_path`. Allowed `tool` values are `search`, `exa-search`, `zhipu-search`, `context7-docs`, `fetch`, and `map`; these map to existing CLI commands only. Use `C:\tmp\smart-search-evidence\<timestamp>-<slug>\` or an equivalent absolute evidence directory for `output_path` values.
+Each `steps[]` item must include `tool`, `purpose`, `command`, and `output_path`. Allowed `tool` values are `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`; these map to existing CLI commands only. `doctor` is a `preflight` action, not a `steps[]` item. Use `C:\tmp\smart-search-evidence\<timestamp>-<slug>\` or an equivalent absolute evidence directory for `output_path` values.
 
-Default Deep Research flow:
+Capability boundaries:
 
-1. Run `smart-search doctor --format json` when configuration is uncertain.
-2. Use `smart-search search ... --validation balanced --extra-sources 3` for broad discovery.
-3. Use `exa-search` for official docs, papers, product pages, and low-noise source discovery.
-4. Use `zhipu-search` for Chinese, domestic, current, or domain-filtered source discovery.
-5. Use `context7-docs` only for docs/API/SDK/library/framework intent.
-6. Use `map` before fetching many pages from a documentation site.
-7. Use `fetch` for key URLs before making claim-level statements.
+- `search`: broad discovery and synthesis through `main_search`; use returned `routing_decision`, `provider_attempts`, `fallback_used`, and `source_warning` as orchestration signals, not as claim proof.
+- `exa-search`: low-noise source discovery for official docs, APIs, papers, product pages, known domains, trusted pages, and recency-filtered source search.
+- `exa-similar`: adjacent-source discovery when a known reliable URL is available.
+- `zhipu-search`: Chinese, domestic, current, or domain-filtered source discovery.
+- `context7-library` and `context7-docs`: library, SDK, API, framework, and documentation intent only.
+- `fetch`: page-content evidence. Key claims require fetched page text under `fetch_before_claim`.
+- `map`: site structure exploration before many fetches from one site; not claim evidence by itself.
+
+Default Deep Research orchestration:
+
+1. Run `smart-search doctor --format json` as preflight when configuration is uncertain.
+2. Infer `intent_signals` from the natural-language prompt.
+3. Generate a `capability_plan` instead of selecting a fixed topic recipe.
+4. Use `smart-search search ... --validation balanced --extra-sources 1..3` for broad discovery.
+5. Add `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, or `map` only when the capability boundary matches the intent.
+6. Use `fetch` for key URLs before making claim-level statements.
+7. Run `gap_check`: fetch missing evidence for key claims or downgrade them to unverified candidates.
 
 `fetch_before_claim` means key claims must be backed by fetched page content. `primary_sources` and `extra_sources` are discovery candidates until fetched. Final answers should include fetched evidence, unverified candidate sources, and key commands used.
 
-Deep Research smoke coverage is mock-full plus live-limited. Mock-full coverage should cover trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence paths, Chinese current topics, English research topics, docs/API topics, user-provided URL fetch-first flows, and missing-provider failure guidance. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` when real keys are available and live checks are expected. If a smoke issue is found, fix the affected docs/code/tests and rerun the affected smoke until it passes or is proven to be an external provider blocker.
+Deep Research smoke coverage is mock-full plus live-limited. Mock-full coverage should cover trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence paths, capability boundaries, `intent_signals`, `capability_plan`, `gap_check`, simple current prompts such as `深度搜索一下最近的比特币行情`, docs/API prompts, claim-verification prompts, user-provided URL fetch-first flows, missing-provider failure guidance, and the rule that fixed topic recipe ids are not required schema. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` when real keys are available and live checks are expected. If a smoke issue is found, fix the affected docs/code/tests and rerun the affected smoke until it passes or is proven to be an external provider blocker.
 
 Setup and config output should include `ok` and `config_file`. Saved API keys must be masked in command output.
 

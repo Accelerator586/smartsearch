@@ -1627,6 +1627,197 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
         )
     )
 
+    deep_allowed_tools = {
+        "search",
+        "exa-search",
+        "exa-similar",
+        "zhipu-search",
+        "context7-library",
+        "context7-docs",
+        "fetch",
+        "map",
+    }
+    fixed_recipe_ids = {
+        "current_market_research",
+        "product_comparison_research",
+        "technical_docs_research",
+        "news_or_policy_research",
+        "claim_verification_research",
+        "url_first_research",
+    }
+    base_plan_fields = {
+        "mode",
+        "question",
+        "difficulty",
+        "intent_signals",
+        "capability_plan",
+        "evidence_policy",
+        "steps",
+        "gap_check",
+        "final_answer_policy",
+    }
+    market_plan = {
+        "mode": "deep_research",
+        "question": "深度搜索一下最近的比特币行情",
+        "difficulty": "standard",
+        "intent_signals": {
+            "recency_requirement": "current",
+            "docs_api_intent": False,
+            "locale_domain_scope": "global",
+            "known_url": False,
+            "source_authority_need": "high",
+            "claim_risk": "high",
+            "cross_validation_need": "high",
+            "breadth_depth_budget": "standard",
+        },
+        "capability_plan": [
+            {"capability": "broad_discovery", "tools": ["search"]},
+            {"capability": "low_noise_source_discovery", "tools": ["exa-search"]},
+            {"capability": "page_evidence", "tools": ["fetch"]},
+        ],
+        "evidence_policy": "fetch_before_claim",
+        "steps": [
+            {"tool": "search", "purpose": "broad discovery", "command": "smart-search search ...", "output_path": r"C:\tmp\smart-search-evidence\market\01-search.json"},
+            {"tool": "exa-search", "purpose": "source discovery", "command": "smart-search exa-search ...", "output_path": r"C:\tmp\smart-search-evidence\market\02-exa.json"},
+            {"tool": "fetch", "purpose": "claim evidence", "command": "smart-search fetch ...", "output_path": r"C:\tmp\smart-search-evidence\market\03-fetch.md"},
+        ],
+        "gap_check": {"required": True, "rule": "fetch missing evidence or downgrade"},
+        "final_answer_policy": "cite fetched evidence and list unverified candidates",
+    }
+    market_tools = {step["tool"] for step in market_plan["steps"]}
+    cases.append(
+        _case(
+            "deep_research simple current prompt uses capability plan",
+            base_plan_fields.issubset(market_plan)
+            and market_plan["intent_signals"]["recency_requirement"] == "current"
+            and market_plan["intent_signals"]["claim_risk"] == "high"
+            and market_plan["evidence_policy"] == "fetch_before_claim"
+            and "search" in market_tools
+            and "fetch" in market_tools
+            and market_tools <= deep_allowed_tools,
+            {"research_plan": market_plan},
+        )
+    )
+
+    docs_plan = {
+        "mode": "deep_research",
+        "question": "深度调研 React useEffect 最新文档",
+        "difficulty": "standard",
+        "intent_signals": {"docs_api_intent": True, "recency_requirement": "recent", "known_url": False},
+        "capability_plan": [
+            {"capability": "docs_source_discovery", "tools": ["exa-search", "context7-library", "context7-docs"]},
+            {"capability": "page_evidence", "tools": ["fetch"]},
+        ],
+        "evidence_policy": "fetch_before_claim",
+        "steps": [
+            {"tool": "exa-search", "purpose": "official docs discovery", "command": "smart-search exa-search ...", "output_path": r"C:\tmp\smart-search-evidence\docs\01-exa.json"},
+            {"tool": "context7-library", "purpose": "resolve library id", "command": "smart-search context7-library ...", "output_path": r"C:\tmp\smart-search-evidence\docs\02-c7-lib.json"},
+            {"tool": "context7-docs", "purpose": "docs reference", "command": "smart-search context7-docs ...", "output_path": r"C:\tmp\smart-search-evidence\docs\03-c7-docs.json"},
+            {"tool": "fetch", "purpose": "claim evidence", "command": "smart-search fetch ...", "output_path": r"C:\tmp\smart-search-evidence\docs\04-fetch.md"},
+        ],
+        "gap_check": {"required": True},
+        "final_answer_policy": "cite fetched evidence and list unverified candidates",
+    }
+    docs_tools = {step["tool"] for step in docs_plan["steps"]}
+    cases.append(
+        _case(
+            "deep_research docs api prompt uses docs capabilities",
+            docs_plan["intent_signals"]["docs_api_intent"]
+            and {"exa-search", "context7-library", "context7-docs", "fetch"} <= docs_tools
+            and docs_tools <= deep_allowed_tools,
+            {"research_plan": docs_plan},
+        )
+    )
+
+    claim_plan = {
+        "mode": "deep_research",
+        "question": "帮我核验这个说法是真是假",
+        "difficulty": "high",
+        "intent_signals": {"claim_risk": "high", "cross_validation_need": "high", "known_url": False},
+        "capability_plan": [
+            {"capability": "cross_validation", "tools": ["search", "exa-search", "zhipu-search"]},
+            {"capability": "page_evidence", "tools": ["fetch"]},
+        ],
+        "evidence_policy": "fetch_before_claim",
+        "steps": [
+            {"tool": "search", "purpose": "broad claim discovery", "command": "smart-search search ...", "output_path": r"C:\tmp\smart-search-evidence\claim\01-search.json"},
+            {"tool": "fetch", "purpose": "claim evidence", "command": "smart-search fetch ...", "output_path": r"C:\tmp\smart-search-evidence\claim\02-fetch.md"},
+        ],
+        "gap_check": {"required": True, "unsupported_claim_action": "downgrade_to_unverified_candidate"},
+        "final_answer_policy": "answer only from fetched evidence",
+    }
+    cases.append(
+        _case(
+            "deep_research claim verification requires fetch_before_claim",
+            claim_plan["evidence_policy"] == "fetch_before_claim"
+            and claim_plan["intent_signals"]["cross_validation_need"] == "high"
+            and any(step["tool"] == "fetch" for step in claim_plan["steps"])
+            and claim_plan["gap_check"]["unsupported_claim_action"] == "downgrade_to_unverified_candidate",
+            {"research_plan": claim_plan},
+        )
+    )
+
+    url_first_plan = {
+        "mode": "deep_research",
+        "question": "深度调研 https://example.com/source",
+        "difficulty": "standard",
+        "intent_signals": {"known_url": True, "recency_requirement": "none"},
+        "capability_plan": [
+            {"capability": "page_evidence", "tools": ["fetch"]},
+            {"capability": "adjacent_source_discovery", "tools": ["exa-similar"]},
+        ],
+        "evidence_policy": "fetch_before_claim",
+        "steps": [
+            {"tool": "fetch", "purpose": "fetch user supplied URL first", "command": "smart-search fetch ...", "output_path": r"C:\tmp\smart-search-evidence\url\01-fetch.md"},
+            {"tool": "exa-similar", "purpose": "find adjacent sources", "command": "smart-search exa-similar ...", "output_path": r"C:\tmp\smart-search-evidence\url\02-similar.json"},
+        ],
+        "gap_check": {"required": True},
+        "final_answer_policy": "cite fetched evidence and list adjacent candidates",
+    }
+    cases.append(
+        _case(
+            "deep_research url prompt is fetch first",
+            url_first_plan["intent_signals"]["known_url"]
+            and url_first_plan["steps"][0]["tool"] == "fetch"
+            and any(step["tool"] == "exa-similar" for step in url_first_plan["steps"]),
+            {"research_plan": url_first_plan},
+        )
+    )
+
+    normal_prompt = "搜索一下 smart-search 怎么安装"
+    cases.append(
+        _case(
+            "deep_research normal search prompt does not trigger",
+            not any(marker in normal_prompt.lower() for marker in ("深度搜索", "深度调研", "深入搜索", "deep search", "deep research")),
+            {"prompt": normal_prompt, "deep_research_triggered": False},
+        )
+    )
+
+    missing_for_deep = _minimum_profile_result(
+        "standard",
+        {
+            **minimum_status,
+            "docs_search": {"configured": [], "fallback_chain": ["exa", "context7"], "ok": False},
+            "web_fetch": {"configured": [], "fallback_chain": ["tavily", "firecrawl"], "ok": False},
+        },
+    )
+    cases.append(
+        _case(
+            "deep_research missing provider gives capability guidance",
+            not missing_for_deep["ok"] and set(missing_for_deep["missing"]) == {"docs_search", "web_fetch"},
+            {"missing": missing_for_deep["missing"], "error_type": missing_for_deep["error_type"]},
+        )
+    )
+
+    schema_modes = {"deep_research"}
+    cases.append(
+        _case(
+            "deep_research fixed topic recipes are examples not schema",
+            schema_modes.isdisjoint(fixed_recipe_ids) and "deep_research" in schema_modes,
+            {"schema_modes": sorted(schema_modes), "not_schema_modes": sorted(fixed_recipe_ids)},
+        )
+    )
+
     all_attempts: list[dict] = []
     for c in cases:
         all_attempts.extend(c.get("provider_attempts", []))

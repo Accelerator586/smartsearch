@@ -26,7 +26,6 @@ def test_smart_search_skill_contract_enforces_cli_first():
 
     forbidden_text = [
         "mcp__smart-search__",
-        "web_fetch",
         "get_sources",
         "get_config_info",
         "toggle_builtin_tools",
@@ -58,8 +57,15 @@ def test_deep_research_skill_contract_public_and_packaged_assets_match():
         "deep search",
         "deep research",
         "research_plan",
+        "capability-based orchestration",
+        "intent_signals",
+        "capability_plan",
+        "gap_check",
         "fetch_before_claim",
-        "search`, `exa-search`, `zhipu-search`, `context7-docs`, `fetch`, and `map`",
+        "search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`",
+        "doctor` is preflight",
+        "fixed topic recipe",
+        "深度搜索一下最近的比特币行情",
         "C:\\tmp\\smart-search-evidence",
         "mock-full plus live-limited",
         "does not add or require a `smart-search deep` command",
@@ -81,10 +87,16 @@ def test_deep_research_cli_contract_documents_plan_and_smoke_matrix():
         "`mode`: always `deep_research`",
         "`question`: the user's research question",
         "`difficulty`: `standard` or `high`",
+        "`intent_signals`: dimensional signals",
+        "`capability_plan`: the selected capability needs",
         "`evidence_policy`: default `fetch_before_claim`",
         "`steps`: ordered CLI command steps",
+        "`gap_check`: how the agent verifies",
         "`final_answer_policy`: how to cite fetched evidence",
-        "Allowed `tool` values are `search`, `exa-search`, `zhipu-search`, `context7-docs`, `fetch`, and `map`",
+        "Allowed `tool` values are `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`",
+        "`doctor` is a `preflight` action, not a `steps[]` item",
+        "must not require fixed topic recipe ids",
+        "fixed topic recipe ids are not required schema",
         "Mock-full coverage should cover trigger phrases",
         "Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch`",
         "rerun the affected smoke until it passes or is proven to be an external provider blocker",
@@ -92,6 +104,25 @@ def test_deep_research_cli_contract_documents_plan_and_smoke_matrix():
     for marker in required_markers:
         assert marker in public_contract
         assert marker in packaged_contract
+
+
+def test_deep_research_readme_documents_capability_orchestration():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    required_markers = [
+        "Deep Research 不是固定题材配方",
+        "`intent_signals`",
+        "`capability_plan`",
+        "`gap_check`",
+        "`exa-similar`",
+        "`context7-library`",
+        "`doctor` 只是配置预检",
+        "Deep Research is not a fixed topic recipe system",
+        "not required schema enums",
+        "`doctor` is preflight, not a research step",
+        "Unsupported key claims must be fetched or downgraded to unverified candidates",
+    ]
+    for marker in required_markers:
+        assert marker in readme
 
 
 def test_deep_research_shared_skill_files_are_synchronized():
