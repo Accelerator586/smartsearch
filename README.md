@@ -313,7 +313,7 @@ smart-search search "今天 OpenAI Responses API 有哪些新变化？" --extra-
 - `--fallback auto|off`：控制同能力兜底；`off` 会让 provider 失败时不继续尝试同 capability 下一个 provider。
 - `--providers auto|CSV`：限制本次可用 provider，例如 `exa,context7`。
 - `--timeout SECONDS`：本次搜索最多等待多少秒。
-- `--format json|markdown`：选择输出格式。
+- `--format json|markdown|content`：选择输出格式；`content` 只打印正文，适合终端直读。
 - `--output PATH`：同时把结果写入文件。
 
 查官方文档或 API：
@@ -411,6 +411,12 @@ smart-search smoke --live --format json
 
 ```powershell
 smart-search search "query" --format json
+```
+
+想直接阅读搜索生成的正文时，用 Content：
+
+```powershell
+smart-search search "nba战报" --format content
 ```
 
 想直接阅读网页正文时，用 Markdown：
@@ -774,7 +780,7 @@ Useful options:
 - `--fallback auto|off`: control same-capability fallback; `off` stops after the first matching provider.
 - `--providers auto|CSV`: restrict providers for this run, for example `exa,context7`.
 - `--timeout SECONDS`: hard timeout for the search.
-- `--format json|markdown`: output format.
+- `--format json|markdown|content`: output format; `content` prints only the generated body for direct terminal reading.
 - `--output PATH`: also write the rendered output to a file.
 
 Search docs or APIs:
@@ -872,6 +878,12 @@ Use JSON by default when another tool or agent will parse the result:
 
 ```powershell
 smart-search search "query" --format json
+```
+
+Use Content when you want only the generated answer body:
+
+```powershell
+smart-search search "nba战报" --format content
 ```
 
 Use Markdown when you want to read fetched page content:

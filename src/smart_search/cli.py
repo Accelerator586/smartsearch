@@ -94,7 +94,26 @@ def _get_version() -> str:
 
 
 def _json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=True, indent=2)
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def _json_stdout_safe(data: Any) -> str:
+    text = _json(data)
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    errors = getattr(sys.stdout, "errors", None) or "strict"
+    try:
+        text.encode(encoding, errors=errors)
+        return text
+    except UnicodeEncodeError:
+        return "".join(_escape_unencodable_json_char(char, encoding) for char in text)
+
+
+def _escape_unencodable_json_char(char: str, encoding: str) -> str:
+    try:
+        char.encode(encoding)
+        return char
+    except UnicodeEncodeError:
+        return json.dumps(char, ensure_ascii=True)[1:-1]
 
 
 def _format_seconds(seconds: float) -> str:
@@ -161,7 +180,16 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
     return _json(data)
 
 
+def _format_content(data: dict[str, Any]) -> str:
+    content = data.get("content")
+    if content is None:
+        content = ""
+    return str(content) + ("\n" if content else "")
+
+
 def _render(command: str, data: dict[str, Any], fmt: str) -> str:
+    if fmt == "content":
+        return _format_content(data)
     if fmt == "markdown":
         return _format_markdown(command, data)
     return _json(data)
@@ -239,6 +267,8 @@ def _print_result(command: str, data: dict[str, Any], fmt: str, output: str = ""
     rendered = _render(command, data, fmt)
     if output:
         service.write_output(output, rendered)
+    if fmt == "json":
+        rendered = _json_stdout_safe(data)
     _write_stdout(rendered)
     if rendered and not rendered.endswith("\n"):
         _write_stdout("\n")
@@ -246,7 +276,7 @@ def _print_result(command: str, data: dict[str, Any], fmt: str, output: str = ""
 
 
 def _add_format_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--format", choices=["json", "markdown"], default="json")
+    parser.add_argument("--format", choices=["json", "markdown", "content"], default="json")
     parser.add_argument("--output", default="", help="Write rendered output to a file.")
 
 

@@ -14,24 +14,24 @@
 
 ## Commands
 
-- `smart-search search QUERY [--platform NAME] [--model ID] [--extra-sources N] [--validation fast|balanced|strict] [--fallback auto|off] [--providers auto|CSV] [--timeout SECONDS] [--format json|markdown] [--output PATH]`
-- `smart-search fetch URL [--format json|markdown] [--output PATH]`
-- `smart-search exa-search QUERY [--num-results N] [--search-type neural|keyword|auto] [--include-text] [--include-highlights] [--start-published-date YYYY-MM-DD] [--include-domains CSV] [--exclude-domains CSV] [--category NAME] [--format json|markdown] [--output PATH]`
-- `smart-search exa-similar URL [--num-results N] [--format json|markdown] [--output PATH]`
-- `smart-search zhipu-search QUERY [--count N] [--search-engine NAME] [--search-recency-filter VALUE] [--search-domain-filter DOMAIN] [--content-size medium|high] [--format json|markdown] [--output PATH]`
-- `smart-search context7-library NAME [QUERY] [--format json|markdown] [--output PATH]`
-- `smart-search context7-docs LIBRARY_ID QUERY [--format json|markdown] [--output PATH]`
-- `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown] [--output PATH]`
-- `smart-search doctor [--format json|markdown] [--output PATH]`
-- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--skip-skills] [--install-skills CSV] [--skills-root PATH] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--tavily-api-url URL] [--tavily-key KEY] [--firecrawl-api-url URL] [--firecrawl-key KEY] [--format json|markdown] [--output PATH]`
-- `smart-search config path [--format json|markdown] [--output PATH]`
-- `smart-search config list [--format json|markdown] [--output PATH]`
-- `smart-search config set KEY VALUE [--format json|markdown] [--output PATH]`
-- `smart-search config unset KEY [--format json|markdown] [--output PATH]`
-- `smart-search model set MODEL [--format json] [--output PATH]`
-- `smart-search model current [--format json] [--output PATH]`
+- `smart-search search QUERY [--platform NAME] [--model ID] [--extra-sources N] [--validation fast|balanced|strict] [--fallback auto|off] [--providers auto|CSV] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
+- `smart-search fetch URL [--format json|markdown|content] [--output PATH]`
+- `smart-search exa-search QUERY [--num-results N] [--search-type neural|keyword|auto] [--include-text] [--include-highlights] [--start-published-date YYYY-MM-DD] [--include-domains CSV] [--exclude-domains CSV] [--category NAME] [--format json|markdown|content] [--output PATH]`
+- `smart-search exa-similar URL [--num-results N] [--format json|markdown|content] [--output PATH]`
+- `smart-search zhipu-search QUERY [--count N] [--search-engine NAME] [--search-recency-filter VALUE] [--search-domain-filter DOMAIN] [--content-size medium|high] [--format json|markdown|content] [--output PATH]`
+- `smart-search context7-library NAME [QUERY] [--format json|markdown|content] [--output PATH]`
+- `smart-search context7-docs LIBRARY_ID QUERY [--format json|markdown|content] [--output PATH]`
+- `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
+- `smart-search doctor [--format json|markdown|content] [--output PATH]`
+- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--skip-skills] [--install-skills CSV] [--skills-root PATH] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--tavily-api-url URL] [--tavily-key KEY] [--firecrawl-api-url URL] [--firecrawl-key KEY] [--format json|markdown|content] [--output PATH]`
+- `smart-search config path [--format json|markdown|content] [--output PATH]`
+- `smart-search config list [--format json|markdown|content] [--output PATH]`
+- `smart-search config set KEY VALUE [--format json|markdown|content] [--output PATH]`
+- `smart-search config unset KEY [--format json|markdown|content] [--output PATH]`
+- `smart-search model set MODEL [--format json|markdown|content] [--output PATH]`
+- `smart-search model current [--format json|markdown|content] [--output PATH]`
 - `smart-search regression`
-- `smart-search smoke [--mode mock|live] [--mock] [--live] [--format json|markdown] [--output PATH]`
+- `smart-search smoke [--mode mock|live] [--mock] [--live] [--format json|markdown|content] [--output PATH]`
 - `smart-search --version`
 
 ## Aliases
@@ -70,6 +70,8 @@ Nested aliases:
 ## JSON Expectations
 
 Successful search output includes `ok`, `query`, `primary_api_mode`, `content`, `sources`, `sources_count`, `primary_sources`, `primary_sources_count`, `extra_sources`, `extra_sources_count`, `source_warning`, `routing_decision`, `providers_used`, `provider_attempts`, `fallback_used`, `validation_level`, and `elapsed_ms`. Each source should include at least `url` when available.
+
+`--format content` prints only the `content` field when present. JSON output remains parseable and uses readable non-ASCII text when the terminal encoding supports it.
 
 Source provenance fields:
 
@@ -170,7 +172,8 @@ Search timeout output uses `ok=false`, `error_type=network_error`, includes the 
 - Use `zhipu-search` for Chinese, domestic, current, or domain-filtered source discovery when Zhipu is configured.
 - Use `exa-search --start-published-date` for recency-constrained source discovery.
 - Use `exa-similar` when a known good page is available and adjacent sources are needed.
-- Use `fetch --format markdown` for user-supplied URLs or when exact page text matters.
+- Use `search --format content` when a human wants only the generated answer body.
+- Use `fetch --format markdown` or `fetch --format content` for user-supplied URLs or when exact page text matters.
 - Use `map` before fetching many pages from a documentation site.
 - Keep `search --extra-sources` small (`1` to `3`) unless broad coverage is requested.
 - For current news or high-risk claims, prefer source discovery plus `fetch`; do not treat broad `search.content` plus `extra_sources` as claim-level verification.

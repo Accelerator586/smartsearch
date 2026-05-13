@@ -54,13 +54,21 @@ ZH_CURRENT_KEYWORDS = {
     "最新",
     "国内",
     "中国",
-    "中文",
     "政策",
     "新闻",
     "实时",
     "刚刚",
     "本周",
     "本月",
+    "战报",
+    "比分",
+    "赛程",
+    "赛果",
+    "季后赛",
+    "比赛",
+    "nba",
+    "足球",
+    "篮球",
 }
 FETCH_INTENT_KEYWORDS = {"http://", "https://"}
 MAIN_SEARCH_FALLBACK_CHAIN = ["xai-responses", "openai-compatible"]
@@ -177,7 +185,8 @@ def _is_docs_intent(query: str) -> bool:
 
 
 def _is_zh_current_intent(query: str) -> bool:
-    return any(keyword in query for keyword in ZH_CURRENT_KEYWORDS)
+    q = query.lower()
+    return any(keyword in q for keyword in ZH_CURRENT_KEYWORDS)
 
 
 def _is_fetch_intent(query: str) -> bool:
@@ -789,12 +798,22 @@ async def search(
 
     docs_intent = _is_docs_intent(query)
     zh_current_intent = _is_zh_current_intent(query)
+    web_current_intent = zh_current_intent
     fetch_intent = _is_fetch_intent(query)
+    supplemental_paths: list[str] = []
+    if docs_intent:
+        supplemental_paths.append("docs_search")
+    if web_current_intent or validation_level == "strict":
+        supplemental_paths.append("web_search")
+    if fetch_intent:
+        supplemental_paths.append("web_fetch")
     selected_main_provider_configs = main_provider_configs if fallback_mode != "off" else main_provider_configs[:1]
     routing_decision = {
         "docs_intent": docs_intent,
         "zh_current_intent": zh_current_intent,
+        "web_current_intent": web_current_intent,
         "fetch_intent": fetch_intent,
+        "supplemental_paths": supplemental_paths,
         "validation_level": validation_level,
         "fallback_mode": fallback_mode,
         "providers": providers,
@@ -882,7 +901,7 @@ async def search(
             docs_sources, docs_attempts = await _run_docs_search_fallback(query, providers=providers, fallback=fallback_mode)
             provider_attempts.extend(docs_attempts)
             supplemental_sources.extend(docs_sources)
-        if zh_current_intent or validation_level == "strict":
+        if web_current_intent or validation_level == "strict":
             web_sources, web_attempts = await _run_web_search_fallback(query, count=max(1, extra_sources or 3), providers=providers, fallback=fallback_mode)
             provider_attempts.extend(web_attempts)
             supplemental_sources.extend(web_sources)
@@ -1560,14 +1579,31 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
     general_route = {
         "docs_intent": _is_docs_intent("today AI news"),
         "zh_current_intent": _is_zh_current_intent("today AI news"),
+        "web_current_intent": _is_zh_current_intent("today AI news"),
+        "supplemental_paths": [],
     }
     cases.append(_case("search balanced avoids context7 for general query", not general_route["docs_intent"], {"routing_decision": general_route}))
 
-    docs_route = {"docs_intent": _is_docs_intent("React useEffect API docs")}
+    docs_route = {
+        "docs_intent": _is_docs_intent("React useEffect API docs"),
+        "web_current_intent": _is_zh_current_intent("React useEffect API docs"),
+        "supplemental_paths": ["docs_search"],
+    }
     cases.append(_case("search docs intent uses docs route", docs_route["docs_intent"], {"routing_decision": docs_route}))
 
-    zh_route = {"zh_current_intent": _is_zh_current_intent("今天国内 AI 新闻")}
+    zh_route = {
+        "zh_current_intent": _is_zh_current_intent("今天国内 AI 新闻"),
+        "web_current_intent": _is_zh_current_intent("今天国内 AI 新闻"),
+        "supplemental_paths": ["web_search"],
+    }
     cases.append(_case("search zh current intent uses zhipu reinforcement", zh_route["zh_current_intent"], {"routing_decision": zh_route}))
+
+    sports_route = {
+        "zh_current_intent": _is_zh_current_intent("nba战报"),
+        "web_current_intent": _is_zh_current_intent("nba战报"),
+        "supplemental_paths": ["web_search"],
+    }
+    cases.append(_case("search sports current intent uses web reinforcement", sports_route["web_current_intent"], {"routing_decision": sports_route}))
 
     strict_attempts = [_attempt("main_search", "xAI Responses", "ok", time.time(), result_count=1)]
     strict_sources: list[dict[str, Any]] = []

@@ -48,7 +48,7 @@ Use the local `smart-search` command as the default execution layer for web rese
 
 ## Evidence Files
 
-For multi-source research, use `--output` to save evidence under `C:\tmp\smart-search-evidence\` with a descriptive timestamped filename. Stdout should still contain the full JSON result unless markdown was explicitly chosen for human reading.
+For multi-source research, use `--output` to save evidence under `C:\tmp\smart-search-evidence\` with a descriptive timestamped filename. Stdout should still contain the full JSON result unless markdown or content output was explicitly chosen for human reading.
 
 For claim-level evidence, prefer this order:
 
@@ -78,7 +78,7 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - In sandboxed runtimes (Codex CLI, containers, CI) where the user's home directory may not be writable from spawned subprocesses, set `SMART_SEARCH_CONFIG_DIR` to an absolute path the runtime can write to. The CLI uses it for both config and logs and skips home-directory fallback.
 - If `smart-search doctor --format json` returns `ok: false`, follow the `error` field's guidance (`smart-search setup` or `smart-search config set KEY VALUE`); do not silently fall back to native web search.
 - Interactive `smart-search setup` is a language-selecting grouped wizard with arrow-key / Space / Enter provider selection. It guides users through required `main_search`, `docs_search`, and fetch capability, then optional `web_search` reinforcement.
-- The setup wizard prints beginner filling examples for official-service and relay/pooled-endpoint minimum profiles. Keep that guidance on stderr so stdout remains parseable JSON/Markdown.
+- The setup wizard prints beginner filling examples for official-service and relay/pooled-endpoint minimum profiles. Keep that guidance on stderr so stdout remains parseable JSON/Markdown/content output.
 - Use `smart-search setup --lang en` for an English wizard and `smart-search setup --advanced` only when low-level config keys must be shown one by one.
 - Use `TAVILY_API_URL=https://<host>/api/tavily` for Tavily Hikari / pooled endpoints. Root host and `/mcp` inputs are normalized by setup; `/mcp` itself is not the REST base Smart Search should call.
 - Use `FIRECRAWL_API_URL` only for a Firecrawl-compatible REST base. Official default is `https://api.firecrawl.dev/v2`.
@@ -88,6 +88,7 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 ```powershell
 smart-search search "query" --extra-sources 5 --timeout 90 --format json --output result.json
 smart-search search "query" --platform "Reuters" --model "model-id" --extra-sources 3 --timeout 90 --format json
+smart-search search "nba战报" --format content
 smart-search search "query" --validation strict --fallback auto --providers auto --format json
 smart-search exa-search "query" --num-results 5 --search-type neural --include-text --include-highlights --include-domains docs.example.com --format json
 smart-search exa-similar "https://example.com/article" --num-results 5 --format json
@@ -122,6 +123,7 @@ Short aliases are supported for interactive use:
 ```powershell
 smart-search --v
 smart-search s "query" --format json
+smart-search s "nba战报" --format content
 smart-search f "https://example.com" --format markdown
 smart-search exa "OpenAI Responses API documentation" --format json
 smart-search z "today China AI news" --format json

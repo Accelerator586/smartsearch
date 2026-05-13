@@ -323,6 +323,113 @@ async def test_search_provider_filter_can_select_openai_compatible(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["nba战报", "NBA比分", "今日赛程"])
+async def test_balanced_current_sports_queries_use_web_search_reinforcement(monkeypatch, query):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+
+    async def fake_search(self, query, platform="", ctx=None):
+        return "Sports answer."
+
+    async def fake_tavily_search(query, max_results=6):
+        return [{"url": "https://sports.example.com", "title": "Sports", "content": "score"}]
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
+    monkeypatch.setattr(service, "call_tavily_search", fake_tavily_search)
+
+    result = await service.search(query, validation="balanced")
+
+    assert result["ok"] is True
+    assert result["routing_decision"]["zh_current_intent"] is True
+    assert result["routing_decision"]["web_current_intent"] is True
+    assert "web_search" in result["routing_decision"]["supplemental_paths"]
+    assert any(attempt["capability"] == "web_search" and attempt["status"] == "ok" for attempt in result["provider_attempts"])
+    assert result["extra_sources"][0]["url"] == "https://sports.example.com"
+
+
+@pytest.mark.asyncio
+async def test_chinese_language_request_does_not_trigger_current_web_search(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+
+    async def fake_search(self, query, platform="", ctx=None):
+        return "Language answer."
+
+    async def should_not_run_web_search(query, count=5, providers="auto", fallback="auto"):
+        raise AssertionError("generic Chinese-language requests should not trigger current web_search")
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
+    monkeypatch.setattr(service, "_run_web_search_fallback", should_not_run_web_search)
+
+    result = await service.search("中文解释 Python 函数", validation="balanced")
+
+    assert result["ok"] is True
+    assert result["routing_decision"]["web_current_intent"] is False
+    assert "web_search" not in result["routing_decision"]["supplemental_paths"]
+    assert all(attempt["capability"] != "web_search" for attempt in result["provider_attempts"])
+
+
+@pytest.mark.asyncio
+async def test_docs_query_routes_docs_without_current_web_search(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+
+    async def fake_search(self, query, platform="", ctx=None):
+        return "Docs answer."
+
+    async def fake_docs_search(query, providers="auto", fallback="auto"):
+        return [{"url": "https://docs.example.com", "provider": "exa"}], [
+            {"capability": "docs_search", "provider": "exa", "status": "ok", "elapsed_ms": 1, "result_count": 1}
+        ]
+
+    async def should_not_run_web_search(query, count=5, providers="auto", fallback="auto"):
+        raise AssertionError("docs query should not trigger current web_search")
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
+    monkeypatch.setattr(service, "_run_docs_search_fallback", fake_docs_search)
+    monkeypatch.setattr(service, "_run_web_search_fallback", should_not_run_web_search)
+
+    result = await service.search("React useEffect API docs 中文解释", validation="balanced")
+
+    assert result["ok"] is True
+    assert result["routing_decision"]["docs_intent"] is True
+    assert result["routing_decision"]["web_current_intent"] is False
+    assert result["routing_decision"]["supplemental_paths"] == ["docs_search"]
+    assert any(attempt["capability"] == "docs_search" for attempt in result["provider_attempts"])
+    assert all(attempt["capability"] != "web_search" for attempt in result["provider_attempts"])
+
+
+@pytest.mark.asyncio
+async def test_strict_still_uses_web_search_without_current_keyword(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+
+    async def fake_search(self, query, platform="", ctx=None):
+        return "Strict answer."
+
+    async def fake_tavily_search(query, max_results=6):
+        return [{"url": "https://strict.example.com", "title": "Strict", "content": "evidence"}]
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
+    monkeypatch.setattr(service, "call_tavily_search", fake_tavily_search)
+
+    result = await service.search("plain evergreen query", validation="strict")
+
+    assert result["ok"] is True
+    assert result["routing_decision"]["web_current_intent"] is False
+    assert "web_search" in result["routing_decision"]["supplemental_paths"]
+    assert any(attempt["capability"] == "web_search" and attempt["status"] == "ok" for attempt in result["provider_attempts"])
+
+
+@pytest.mark.asyncio
 async def test_search_respects_fallback_off_for_main_search(monkeypatch):
     monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
     monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")

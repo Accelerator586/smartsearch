@@ -167,6 +167,62 @@ def test_search_outputs_json_and_file(monkeypatch, capsys):
     assert file_data["content"] == "Answer"
 
 
+def test_search_json_outputs_readable_chinese(monkeypatch, capsys):
+    async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
+        return {"ok": True, "content": "中文NBA战报", "sources": [], "sources_count": 0}
+
+    monkeypatch.setattr(cli.service, "search", fake_search)
+
+    code = cli.main(["search", "nba战报", "--format", "json"])
+
+    assert code == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert "中文NBA战报" in out
+    assert "\\u4e2d\\u6587" not in out
+    assert json.loads(out)["content"] == "中文NBA战报"
+
+
+def test_search_content_format_outputs_content_only(monkeypatch, capsys):
+    async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
+        return {"ok": True, "content": "中文NBA战报", "sources": [{"url": "https://example.com"}], "sources_count": 1}
+
+    monkeypatch.setattr(cli.service, "search", fake_search)
+
+    code = cli.main(["search", "nba战报", "--format", "content"])
+
+    assert code == cli.EXIT_OK
+    assert capsys.readouterr().out == "中文NBA战报\n"
+
+
+def test_fetch_content_format_matches_markdown_body(monkeypatch, capsys):
+    async def fake_fetch(url):
+        return {"ok": True, "url": url, "content": "# 中文页面"}
+
+    monkeypatch.setattr(cli.service, "fetch", fake_fetch)
+
+    content_code = cli.main(["fetch", "https://example.com", "--format", "content"])
+    content_out = capsys.readouterr().out
+    markdown_code = cli.main(["fetch", "https://example.com", "--format", "markdown"])
+    markdown_out = capsys.readouterr().out
+
+    assert content_code == cli.EXIT_OK
+    assert markdown_code == cli.EXIT_OK
+    assert content_out == "# 中文页面\n"
+    assert markdown_out == content_out
+
+
+def test_context7_docs_content_format_outputs_content(monkeypatch, capsys):
+    async def fake_context7_docs(library_id, query):
+        return {"ok": True, "provider": "context7-docs", "library_id": library_id, "query": query, "content": "中文文档内容"}
+
+    monkeypatch.setattr(cli.service, "context7_docs", fake_context7_docs)
+
+    code = cli.main(["context7-docs", "/facebook/react", "hooks", "--format", "content"])
+
+    assert code == cli.EXIT_OK
+    assert capsys.readouterr().out == "中文文档内容\n"
+
+
 def test_search_alias_uses_canonical_command(monkeypatch, capsys):
     captured = {}
 
@@ -324,6 +380,20 @@ def test_stdout_falls_back_for_gbk_unencodable_unicode(monkeypatch):
     out = fake_stdout.getvalue()
     assert "\\u2060" in out
     assert json.loads(out)["content"] == "A\u2060B"
+
+
+def test_gbk_stdout_keeps_json_parseable_with_chinese_and_unencodable_unicode(monkeypatch):
+    fake_stdout = GbkStdout()
+    monkeypatch.setattr(cli.sys, "stdout", fake_stdout)
+
+    code = cli._print_result("search", {"ok": True, "content": "中文A\u2060B📅"}, "json")
+
+    assert code == cli.EXIT_OK
+    out = fake_stdout.getvalue()
+    assert "中文" in out
+    assert "\\u2060" in out
+    assert "\\ud83d\\udcc5" in out
+    assert json.loads(out)["content"] == "中文A\u2060B📅"
 
 
 def test_real_doctor_missing_primary_url_returns_config_exit(monkeypatch, capsys):
