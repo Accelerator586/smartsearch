@@ -185,7 +185,7 @@ Search timeout output uses `ok=false`, `error_type=network_error`, includes the 
 - Keep xAI Responses and OpenAI-compatible as peer `main_search` providers. A failed xAI Responses request may fall back to OpenAI-compatible only when `OPENAI_COMPATIBLE_API_URL` and `OPENAI_COMPATIBLE_API_KEY` are separately configured.
 - Do not use Context7 for broad news or generic web facts; do not use Tavily or Firecrawl as documentation semantic-search replacements.
 - Standard installs must fail closed unless `main_search`, `docs_search`, and fetch capability each have at least one configured provider.
-- After provider-routing changes, run offline regression plus `smart-search smoke --mock --format json`. If live keys were used, run a targeted secret scan for exact key substrings before committing.
+- After provider-routing changes, run source-checkout regression plus `smart-search smoke --mock --format json`. If live keys were used, run a targeted secret scan for exact key substrings before committing.
 
 ## Exit Codes
 
@@ -198,7 +198,11 @@ Search timeout output uses `ok=false`, `error_type=network_error`, includes the 
 
 ## Regression
 
-Run `smart-search regression` before considering CLI or skill changes complete. It should run offline pytest coverage for CLI, service, and skill contract behavior.
+Run `smart-search regression` before considering CLI or skill changes complete.
+
+- In a source checkout, it runs offline pytest coverage for CLI, service, smoke, provider, and skill contract behavior.
+- In npm / mise packaged installs, repository test files are not bundled; since v0.1.8 it falls back to built-in mock smoke regression so users can still verify installed CLI health.
+- For release validation, use a source checkout for full pytest-backed regression and use packaged-install regression only as an install-health check.
 
 ## Tool Policy
 
