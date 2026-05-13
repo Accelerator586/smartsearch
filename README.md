@@ -1009,3 +1009,26 @@ GitHub Actions also supports manual backfill for historical test builds through
 npm versions are immutable:
 old `*-dev.*` packages cannot be renamed in place, only superseded by new
 `*-beta.N` packages and optionally deprecated later with npm owner credentials.
+
+Release closeout checklist:
+
+1. Verify the registry and tags before changing anything:
+   `npm view @konbakuyomu/smart-search versions --json`,
+   `npm view @konbakuyomu/smart-search dist-tags --json`, and
+   `gh release list --repo konbakuyomu/smartsearch --limit 100`.
+2. For historical beta backfill, publish the replacement `*-beta.N` package
+   through Actions with `create_github_release=false` if the workflow token
+   cannot create releases, then create the missing GitHub prerelease locally
+   with `gh release create vX.Y.Z-beta.N --target <commit> --prerelease
+   --latest=false`.
+3. Treat npm `E409` during parallel backfills as a registry concurrency
+   failure, not a version-design failure. Re-run the affected version
+   serially after checking whether the package already exists.
+4. Do a machine-readable gap check: expected beta versions minus npm versions
+   must be empty, and expected `v*beta*` releases minus GitHub prereleases must
+   be empty. Do not rely on visual inspection of long version lists.
+5. Install the selected test build explicitly, for example
+   `mise use -g "npm:@konbakuyomu/smart-search@0.1.10-beta.3" -y --pin`, then
+   run `mise reshim npm:@konbakuyomu/smart-search`, `where.exe smart-search`,
+   `smart-search --version`, `smart-search regression`, and
+   `smart-search smoke --mock --format json`.

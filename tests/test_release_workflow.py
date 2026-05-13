@@ -95,9 +95,25 @@ def test_release_docs_explain_beta_lane_and_npm_immutability():
         "target_ref",
         "npm versions are immutable",
         "cannot be renamed in place",
+        "Release closeout checklist",
+        "create_github_release=false",
+        "gh release create vX.Y.Z-beta.N",
+        "npm `E409`",
+        "machine-readable gap check",
+        "mise use -g",
     ]
     for marker in required_markers:
         assert marker in readme
-    for marker in ["Release Lanes", "<package.json version>-beta.N", "npm versions are immutable"]:
+    contract_markers = [
+        "Release Lanes",
+        "<package.json version>-beta.N",
+        "npm versions are immutable",
+        "Release Closeout Lessons",
+        "GitHub release creation fails",
+        "npm `E409`",
+        "diff-style gap check",
+        "smart-search smoke --mock --format json",
+    ]
+    for marker in contract_markers:
         assert marker in public_contract
         assert marker in packaged_contract
