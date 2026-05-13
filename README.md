@@ -213,6 +213,8 @@ smart-search setup --non-interactive `
   --exa-key "your-exa-key" `
   --context7-key "your-context7-key" `
   --zhipu-key "your-zhipu-key" `
+  --zhipu-api-url "https://open.bigmodel.cn/api" `
+  --zhipu-search-engine "search_std" `
   --tavily-api-url "https://api.tavily.com" `
   --tavily-key "your-tavily-key" `
   --firecrawl-api-url "https://api.firecrawl.dev/v2" `
@@ -220,6 +222,8 @@ smart-search setup --non-interactive `
 ```
 
 Tavily 官方地址默认是 `https://api.tavily.com`。如果使用 Tavily Hikari/号池，REST base 应写成 `https://<host>/api/tavily`；`setup` 会把根域名或 `/mcp` 地址自动规范化到 `/api/tavily`。`/mcp` 是 MCP 入口，不是 Smart Search 调 Tavily REST 的地址。
+
+智谱可选增强走的是智谱官方 `Web Search API`，默认 `ZHIPU_API_URL=https://open.bigmodel.cn/api`，默认 `ZHIPU_SEARCH_ENGINE=search_std`。`setup` 可用 `--zhipu-api-url` 和 `--zhipu-search-engine` 保存配置；官方搜索服务值包括 `search_std`、`search_pro`、`search_pro_sogou`、`search_pro_quark`，也可以用 `smart-search config set ZHIPU_SEARCH_ENGINE <value>` 保存未来新增或自定义服务值。Boundary note: `TAVILY_API_URL` only affects Tavily and does not proxy Zhipu; current `zhipu-search` corresponds to Zhipu Web Search API, not Zhipu Chat Completions `tools=[web_search]`, not Search Agent, and not the MCP Server.
 
 查看已保存配置时会自动遮住 key：
 
@@ -246,6 +250,8 @@ $env:OPENAI_COMPATIBLE_MODEL = "gpt-4.1"
 $env:EXA_API_KEY = "your-exa-key"
 $env:CONTEXT7_API_KEY = "your-context7-key"
 $env:ZHIPU_API_KEY = "your-zhipu-key"
+$env:ZHIPU_API_URL = "https://open.bigmodel.cn/api"
+$env:ZHIPU_SEARCH_ENGINE = "search_std"
 $env:TAVILY_API_URL = "https://api.tavily.com"
 $env:TAVILY_API_KEY = "your-tavily-key"
 $env:FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2"
@@ -291,7 +297,7 @@ $env:FIRECRAWL_API_KEY = "your-firecrawl-key"
 | `CONTEXT7_BASE_URL` | Context7 API 地址，默认 `https://context7.com` |
 | `ZHIPU_API_KEY` | 智谱 Web Search key |
 | `ZHIPU_API_URL` | 智谱 API 地址，默认 `https://open.bigmodel.cn/api` |
-| `ZHIPU_SEARCH_ENGINE` | 智谱搜索引擎，默认 `search_std` |
+| `ZHIPU_SEARCH_ENGINE` | 智谱搜索服务/搜索引擎，默认 `search_std`；官方值包括 `search_std`、`search_pro`、`search_pro_sogou`、`search_pro_quark`，`config set` 保留自定义值能力 |
 | `TAVILY_API_URL` | Tavily REST base，默认 `https://api.tavily.com`；Hikari/号池使用 `https://<host>/api/tavily` |
 | `TAVILY_API_KEY` | Tavily key |
 | `FIRECRAWL_API_URL` | Firecrawl REST base，默认 `https://api.firecrawl.dev/v2` |

@@ -134,3 +134,33 @@ def test_deep_research_shared_skill_files_are_synchronized():
         assert (PUBLIC_SKILL_DIR / relative).read_text(encoding="utf-8") == (
             PACKAGED_SKILL_DIR / relative
         ).read_text(encoding="utf-8")
+
+
+def test_zhipu_setup_contract_public_and_packaged_assets_match():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
+    packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
+    public_contract = (PUBLIC_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
+    packaged_contract = (PACKAGED_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
+    required_markers = [
+        "--zhipu-api-url",
+        "--zhipu-search-engine",
+        "ZHIPU_API_URL",
+        "ZHIPU_SEARCH_ENGINE",
+        "search_std",
+        "search_pro",
+        "search_pro_sogou",
+        "search_pro_quark",
+        "Web Search API",
+        "TAVILY_API_URL",
+        "does not proxy Zhipu",
+        "not Zhipu Chat Completions",
+        "not the MCP Server",
+    ]
+    for marker in required_markers:
+        assert marker in readme
+        assert marker in public_text
+        assert marker in packaged_text
+    for marker in ["--zhipu-api-url", "--zhipu-search-engine"]:
+        assert marker in public_contract
+        assert marker in packaged_contract

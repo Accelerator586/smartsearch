@@ -25,6 +25,10 @@ def _reset_config(monkeypatch, tmp_path):
         "OPENAI_COMPATIBLE_MODEL",
         "EXA_API_KEY",
         "EXA_BASE_URL",
+        "ZHIPU_API_KEY",
+        "ZHIPU_API_URL",
+        "ZHIPU_SEARCH_ENGINE",
+        "ZHIPU_TIMEOUT_SECONDS",
         "TAVILY_API_KEY",
         "TAVILY_API_URL",
         "FIRECRAWL_API_KEY",
@@ -138,6 +142,40 @@ def test_xai_tools_validation(monkeypatch, tmp_path):
     service.config_set("SMART_SEARCH_XAI_TOOLS", "web_search,bad_tool")
     with pytest.raises(ValueError, match="Invalid SMART_SEARCH_XAI_TOOLS"):
         service.config.parse_xai_tools()
+
+
+@pytest.mark.asyncio
+async def test_zhipu_search_uses_configured_engine_and_command_override(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    service.config_set("ZHIPU_API_KEY", "zhipu-test-secret")
+    service.config_set("ZHIPU_API_URL", "https://zhipu.example.com/api")
+    service.config_set("ZHIPU_SEARCH_ENGINE", "search_pro")
+    calls = []
+
+    class FakeZhipuProvider:
+        def __init__(self, api_url, api_key, search_engine, timeout):
+            self.api_url = api_url
+            self.api_key = api_key
+            self.search_engine = search_engine
+            self.timeout = timeout
+            calls.append({"init_engine": search_engine, "api_url": api_url})
+
+        async def search(self, **kwargs):
+            calls[-1]["call_engine"] = kwargs.get("search_engine")
+            engine = kwargs.get("search_engine") or self.search_engine
+            return json.dumps({"ok": True, "search_engine": engine, "results": [], "elapsed_ms": 1})
+
+    monkeypatch.setattr(service, "ZhipuWebSearchProvider", FakeZhipuProvider)
+
+    configured_result = await service.zhipu_search("test")
+    override_result = await service.zhipu_search("test", search_engine="search_pro_quark")
+
+    assert configured_result["search_engine"] == "search_pro"
+    assert override_result["search_engine"] == "search_pro_quark"
+    assert calls == [
+        {"init_engine": "search_pro", "api_url": "https://zhipu.example.com/api", "call_engine": None},
+        {"init_engine": "search_pro_quark", "api_url": "https://zhipu.example.com/api", "call_engine": "search_pro_quark"},
+    ]
 
 
 @pytest.mark.asyncio

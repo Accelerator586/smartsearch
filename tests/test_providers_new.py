@@ -50,6 +50,41 @@ async def test_zhipu_provider_normalizes_search_results(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_zhipu_provider_uses_configured_engine_and_call_override(monkeypatch):
+    payloads = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout, follow_redirects=True):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, endpoint, headers, json):
+            payloads.append(json.copy())
+            return httpx.Response(
+                200,
+                json={"request_id": "r1", "search_result": []},
+                request=httpx.Request("POST", endpoint),
+            )
+
+    monkeypatch.setattr("smart_search.providers.zhipu.httpx.AsyncClient", FakeAsyncClient)
+    provider = ZhipuWebSearchProvider("https://open.bigmodel.cn/api", "key", search_engine="search_pro")
+
+    data = json.loads(await provider.search("hello"))
+    override_data = json.loads(await provider.search("hello", search_engine="search_pro_quark"))
+
+    assert data["search_engine"] == "search_pro"
+    assert override_data["search_engine"] == "search_pro_quark"
+    assert payloads[0]["search_engine"] == "search_pro"
+    assert payloads[1]["search_engine"] == "search_pro_quark"
+
+
+@pytest.mark.asyncio
 async def test_zhipu_provider_reports_rate_limit_without_retry(monkeypatch):
     calls = []
 

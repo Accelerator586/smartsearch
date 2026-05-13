@@ -122,6 +122,9 @@ Deep Research smoke matrix for workflow maintenance is mock-full plus live-limit
 - `exa-search` and `exa-similar` use Exa only.
 - `context7-library` and `context7-docs` use Context7 only.
 - `zhipu-search` uses Zhipu only.
+- Zhipu support currently corresponds to the official Zhipu Web Search API route, using `ZHIPU_API_URL` plus `ZHIPU_SEARCH_ENGINE`; it is not Zhipu Chat Completions `tools=[web_search]`, not Search Agent, and not the MCP Server.
+- `ZHIPU_SEARCH_ENGINE` defaults to `search_std`. Official Web Search API service values include `search_std`, `search_pro`, `search_pro_sogou`, and `search_pro_quark`; keep custom values possible because official services may change.
+- `TAVILY_API_URL` only affects Tavily REST calls and does not proxy Zhipu. Zhipu defaults to `https://open.bigmodel.cn/api` unless `ZHIPU_API_URL` is set.
 - `doctor` tests configured main-search providers, Exa, Tavily, Zhipu, and Context7 connectivity. Firecrawl status currently means the key is configured, not that a live Firecrawl request succeeded.
 
 ## Evidence Files
@@ -158,6 +161,8 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - Interactive `smart-search setup` is a language-selecting grouped wizard with arrow-key / Space / Enter provider selection. It guides users through required `main_search`, `docs_search`, and fetch capability, then optional `web_search` reinforcement.
 - The setup wizard prints beginner filling examples for official-service and relay/pooled-endpoint minimum profiles. Keep that guidance on stderr so stdout remains parseable JSON/Markdown/content output.
 - Use `smart-search setup --lang en` for an English wizard and `smart-search setup --advanced` only when low-level config keys must be shown one by one.
+- Use `smart-search setup --non-interactive --zhipu-api-url "https://open.bigmodel.cn/api" --zhipu-search-engine "search_std"` to save Zhipu Web Search API endpoint and search service without prompts.
+- Interactive setup asks for Zhipu API key, API URL, and search service when optional `web_search` reinforcement selects Zhipu.
 - Use `TAVILY_API_URL=https://<host>/api/tavily` for Tavily Hikari / pooled endpoints. Root host and `/mcp` inputs are normalized by setup; `/mcp` itself is not the REST base Smart Search should call.
 - Use `FIRECRAWL_API_URL` only for a Firecrawl-compatible REST base. Official default is `https://api.firecrawl.dev/v2`.
 
@@ -179,6 +184,7 @@ smart-search setup
 smart-search setup --lang en
 smart-search setup --advanced
 smart-search setup --non-interactive --install-skills hermes
+smart-search setup --non-interactive --zhipu-api-url "https://open.bigmodel.cn/api" --zhipu-search-engine "search_std"
 smart-search setup --non-interactive --tavily-api-url "https://api.tavily.com" --tavily-key "key"
 smart-search --version
 smart-search config path --format json
@@ -188,6 +194,8 @@ smart-search config set SMART_SEARCH_XAI_TOOLS "web_search,x_search" --format js
 smart-search config set EXA_API_KEY "key" --format json
 smart-search config set CONTEXT7_API_KEY "key" --format json
 smart-search config set ZHIPU_API_KEY "key" --format json
+smart-search config set ZHIPU_API_URL "https://open.bigmodel.cn/api" --format json
+smart-search config set ZHIPU_SEARCH_ENGINE "search_pro" --format json
 smart-search config set TAVILY_API_URL "https://api.tavily.com" --format json
 smart-search config set FIRECRAWL_API_URL "https://api.firecrawl.dev/v2" --format json
 smart-search model current --format json

@@ -23,7 +23,7 @@
 - `smart-search context7-docs LIBRARY_ID QUERY [--format json|markdown|content] [--output PATH]`
 - `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
 - `smart-search doctor [--format json|markdown|content] [--output PATH]`
-- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--skip-skills] [--install-skills CSV] [--skills-root PATH] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--tavily-api-url URL] [--tavily-key KEY] [--firecrawl-api-url URL] [--firecrawl-key KEY] [--format json|markdown|content] [--output PATH]`
+- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--skip-skills] [--install-skills CSV] [--skills-root PATH] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--zhipu-api-url URL] [--zhipu-search-engine ENGINE] [--tavily-api-url URL] [--tavily-key KEY] [--firecrawl-api-url URL] [--firecrawl-key KEY] [--format json|markdown|content] [--output PATH]`
 - `smart-search config path [--format json|markdown|content] [--output PATH]`
 - `smart-search config list [--format json|markdown|content] [--output PATH]`
 - `smart-search config set KEY VALUE [--format json|markdown|content] [--output PATH]`
@@ -87,6 +87,17 @@ Exa domain filters:
 - `source_warning`: non-empty when extra source candidates were appended.
 
 Fetch output includes `ok`, `url`, `provider`, `content`, and `elapsed_ms`.
+
+Zhipu Web Search API setup:
+
+- `ZHIPU_API_URL` defaults to `https://open.bigmodel.cn/api`.
+- `ZHIPU_SEARCH_ENGINE` defaults to `search_std`.
+- Official Web Search API service values include `search_std`, `search_pro`, `search_pro_sogou`, and `search_pro_quark`.
+- `smart-search setup --zhipu-api-url URL --zhipu-search-engine ENGINE` saves these values in non-interactive mode.
+- Interactive setup asks for Zhipu API key, API URL, and search service when optional `web_search` reinforcement selects Zhipu.
+- `config set ZHIPU_SEARCH_ENGINE VALUE` must remain free-form so newly added official services do not require a CLI release.
+- `zhipu-search` corresponds to Zhipu Web Search API, not Zhipu Chat Completions `tools=[web_search]`, not Search Agent, and not the MCP Server.
+- `TAVILY_API_URL` only affects Tavily and does not proxy Zhipu.
 
 Exa search output includes `ok`, `query`, `search_type`, `results`, `total`, and `elapsed_ms` when successful.
 

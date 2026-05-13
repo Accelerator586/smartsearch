@@ -572,6 +572,10 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "standard",
         "--zhipu-key",
         "zhipu-secret",
+        "--zhipu-api-url",
+        "zhipu.example.com/api",
+        "--zhipu-search-engine",
+        "search_pro",
         "--context7-key",
         "ctx-secret",
         "--tavily-api-url",
@@ -600,6 +604,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["SMART_SEARCH_FALLBACK_MODE"] == "auto"
     assert saved["SMART_SEARCH_MINIMUM_PROFILE"] == "standard"
     assert saved["ZHIPU_API_KEY"] == "zhipu-secret"
+    assert saved["ZHIPU_API_URL"] == "https://zhipu.example.com/api"
+    assert saved["ZHIPU_SEARCH_ENGINE"] == "search_pro"
     assert saved["CONTEXT7_API_KEY"] == "ctx-secret"
     assert saved["TAVILY_API_URL"] == "https://pool.example.com/api/tavily"
     assert saved["TAVILY_API_KEY"] == "th-test-secret"
@@ -805,6 +811,31 @@ def test_tavily_hikari_prompt_shows_beginner_url_example(monkeypatch, capsys):
     assert "api/tavily" in captured.err
 
 
+def test_zhipu_prompt_saves_official_api_url_and_search_engine(monkeypatch):
+    values = {}
+    selections = iter(["official", "search_pro_sogou"])
+
+    monkeypatch.setattr(cli, "_prompt_select", lambda message, choices, default: next(selections))
+
+    cli._prompt_zhipu_api_url(values, {}, "zh")
+    cli._prompt_zhipu_search_engine(values, {}, "zh")
+
+    assert values["ZHIPU_API_URL"] == "https://open.bigmodel.cn/api"
+    assert values["ZHIPU_SEARCH_ENGINE"] == "search_pro_sogou"
+
+
+def test_zhipu_prompt_allows_custom_search_engine(monkeypatch):
+    values = {}
+    selections = iter(["custom"])
+
+    monkeypatch.setattr(cli, "_prompt_select", lambda message, choices, default: next(selections))
+    monkeypatch.setattr(cli, "_prompt_value", lambda *args, **kwargs: "search_future")
+
+    cli._prompt_zhipu_search_engine(values, {}, "en")
+
+    assert values["ZHIPU_SEARCH_ENGINE"] == "search_future"
+
+
 def test_setup_guided_zh_groups_minimum_capabilities(monkeypatch, capsys):
     saved = {}
     answers = iter(["xai", "", "exa", "tavily", "", "n", "n"])
@@ -842,6 +873,33 @@ def test_setup_guided_zh_groups_minimum_capabilities(monkeypatch, capsys):
     assert "pool.example.com" not in captured.out
     assert "xai-test-secret" not in captured.err
     assert "xai-test-secret" not in captured.out
+
+
+def test_setup_guided_zhipu_optional_reinforcement_saves_url_and_engine(monkeypatch, capsys):
+    saved = {}
+    answers = iter(["skip", "skip", "skip", "zhipu", "official", "search_pro_quark", "n"])
+    secrets = iter(["zhipu-test-secret"])
+
+    def fake_config_set(key, value):
+        saved[key] = value
+        return {"ok": True, "key": key, "value": "***", "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+    monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": saved.copy()})
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
+
+    code = cli.main(["setup", "--skip-skills", "--lang", "zh"])
+    captured = capsys.readouterr()
+
+    assert code == cli.EXIT_OK
+    assert saved["ZHIPU_API_KEY"] == "zhipu-test-secret"
+    assert saved["ZHIPU_API_URL"] == "https://open.bigmodel.cn/api"
+    assert saved["ZHIPU_SEARCH_ENGINE"] == "search_pro_quark"
+    assert "智谱搜索服务" in captured.err
+    assert "zhipu-test-secret" not in captured.out
+    assert "zhipu-test-secret" not in captured.err
 
 
 def test_setup_guided_uses_tui_defaults_for_configured_providers(monkeypatch, capsys):
@@ -1172,6 +1230,8 @@ def test_setup_advanced_mode_keeps_low_level_prompts(monkeypatch, capsys):
     assert code == cli.EXIT_OK
     captured = capsys.readouterr()
     assert "Legacy primary API URL optional" in captured.err
+    assert "Zhipu Web Search API URL optional" in captured.err
+    assert "Zhipu search service" in captured.err
     assert "Advanced mode" in captured.err
 
 
