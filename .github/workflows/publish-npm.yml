@@ -35,7 +35,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target_ref || github.ref }}
+          ref: ${{ github.event.inputs.target_ref || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -57,12 +57,15 @@ jobs:
       - name: Prepare npm release metadata
         id: release
         shell: bash
+        env:
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          DISPATCH_NPM_TAG: ${{ github.event.inputs.npm_tag }}
         run: |
           base_version="$(node -p "require('./package.json').version")"
           package_name="$(node -p "require('./package.json').name")"
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            version="${{ inputs.version }}"
-            tag="${{ inputs.npm_tag }}"
+            version="${DISPATCH_VERSION}"
+            tag="${DISPATCH_NPM_TAG}"
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
             if [[ "$version" == *-* ]]; then
@@ -108,11 +111,15 @@ jobs:
         run: echo "npm version ${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} already exists; skipping publish."
 
       - name: Create or update GitHub release
-        if: github.event_name != 'workflow_dispatch' || inputs.create_github_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          CREATE_GITHUB_RELEASE: ${{ github.event.inputs.create_github_release }}
         shell: bash
         run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${CREATE_GITHUB_RELEASE}" == "false" ]]; then
+            echo "Skipping GitHub release because create_github_release=false."
+            exit 0
+          fi
           version="${{ steps.release.outputs.version }}"
           npm_tag="${{ steps.release.outputs.tag }}"
           tag_name="v${version}"

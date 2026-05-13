@@ -62,8 +62,13 @@ def test_publish_workflow_uses_beta_lane_and_prerelease_guardrails():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in workflow
+    assert "github.event.inputs.target_ref" in workflow
+    assert "github.event.inputs.version" in workflow
+    assert "github.event.inputs.npm_tag" in workflow
     assert "resolve-prerelease-version.js" in workflow
     assert "-dev.${GITHUB_RUN_NUMBER}" not in workflow
+    assert "&& inputs." not in workflow
+    assert "|| inputs." not in workflow
     assert "tag=\"next\"" in workflow
     assert "tag=\"latest\"" in workflow
     assert "Refusing to publish prerelease version" in workflow
