@@ -41,6 +41,27 @@ def _normalize_result(item: dict[str, Any], *, include_text: bool, include_highl
     return out
 
 
+def _error_payload(exc: Exception) -> dict[str, Any]:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code
+        body = exc.response.text.strip()
+        detail = f" - {body[:500]}" if body else ""
+        if status_code == 429:
+            error_type = "rate_limited"
+        elif status_code in {400, 422}:
+            error_type = "parameter_error"
+        elif status_code in {401, 403}:
+            error_type = "auth_error"
+        else:
+            error_type = "network_error"
+        return {"error_type": error_type, "error": f"HTTP {status_code}: {exc.response.reason_phrase}{detail}"}
+    if isinstance(exc, httpx.TimeoutException):
+        return {"error_type": "timeout", "error": "request timed out"}
+    if isinstance(exc, httpx.RequestError):
+        return {"error_type": "network_error", "error": str(exc)}
+    return {"error_type": "runtime_error", "error": str(exc)}
+
+
 class ExaSearchProvider(BaseSearchProvider):
     def __init__(self, api_url: str, api_key: str, timeout: float = 30.0):
         super().__init__(api_url, api_key)
@@ -110,10 +131,12 @@ class ExaSearchProvider(BaseSearchProvider):
             }
         except Exception as e:
             elapsed_ms = round((time.time() - start_time) * 1000, 2)
+            error = _error_payload(e)
             output = {
                 "ok": False,
                 "query": query,
-                "error": str(e),
+                "error_type": error["error_type"],
+                "error": error["error"],
                 "elapsed_ms": elapsed_ms,
             }
 
@@ -153,10 +176,12 @@ class ExaSearchProvider(BaseSearchProvider):
             }
         except Exception as e:
             elapsed_ms = round((time.time() - start_time) * 1000, 2)
+            error = _error_payload(e)
             output = {
                 "ok": False,
                 "url": url,
-                "error": str(e),
+                "error_type": error["error_type"],
+                "error": error["error"],
                 "elapsed_ms": elapsed_ms,
             }
 

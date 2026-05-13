@@ -1289,8 +1289,8 @@ def build_parser() -> argparse.ArgumentParser:
     exa_parser.add_argument("--include-text", action="store_true")
     exa_parser.add_argument("--include-highlights", action="store_true")
     exa_parser.add_argument("--start-published-date", default="")
-    exa_parser.add_argument("--include-domains", default="")
-    exa_parser.add_argument("--exclude-domains", default="")
+    exa_parser.add_argument("--include-domains", nargs="+", default="")
+    exa_parser.add_argument("--exclude-domains", nargs="+", default="")
     exa_parser.add_argument("--category", default="")
     _add_format_args(exa_parser)
 

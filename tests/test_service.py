@@ -680,6 +680,28 @@ async def test_exa_search_passes_parameters(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_exa_search_accepts_powershell_split_domain_filter(monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "exa-secret")
+    captured = {}
+
+    async def fake_search(self, **kwargs):
+        captured.update(kwargs)
+        return json.dumps({"ok": True, "results": [], "total": 0})
+
+    monkeypatch.setattr(service.ExaSearchProvider, "search", fake_search)
+
+    result = await service.exa_search(
+        "freertos release",
+        include_domains="github.com freertos.org",
+        exclude_domains=["youtube.com", "x.com linkedin.com"],
+    )
+
+    assert result["ok"] is True
+    assert captured["include_domains"] == ["github.com", "freertos.org"]
+    assert captured["exclude_domains"] == ["youtube.com", "x.com", "linkedin.com"]
+
+
+@pytest.mark.asyncio
 async def test_exa_search_normalizes_error_json(monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "exa-secret")
 
@@ -693,6 +715,22 @@ async def test_exa_search_normalizes_error_json(monkeypatch):
     assert result["ok"] is False
     assert result["error_type"] == "network_error"
     assert result["error"] == "exa failed"
+
+
+@pytest.mark.asyncio
+async def test_exa_search_preserves_provider_error_type(monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "exa-secret")
+
+    async def fake_search(self, **kwargs):
+        return json.dumps({"ok": False, "error_type": "parameter_error", "error": "HTTP 400: Bad Request"})
+
+    monkeypatch.setattr(service.ExaSearchProvider, "search", fake_search)
+
+    result = await service.exa_search("python docs")
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert result["error"] == "HTTP 400: Bad Request"
 
 
 @pytest.mark.asyncio

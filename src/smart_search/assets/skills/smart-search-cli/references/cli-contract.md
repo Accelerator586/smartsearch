@@ -16,7 +16,7 @@
 
 - `smart-search search QUERY [--platform NAME] [--model ID] [--extra-sources N] [--validation fast|balanced|strict] [--fallback auto|off] [--providers auto|CSV] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
 - `smart-search fetch URL [--format json|markdown|content] [--output PATH]`
-- `smart-search exa-search QUERY [--num-results N] [--search-type neural|keyword|auto] [--include-text] [--include-highlights] [--start-published-date YYYY-MM-DD] [--include-domains CSV] [--exclude-domains CSV] [--category NAME] [--format json|markdown|content] [--output PATH]`
+- `smart-search exa-search QUERY [--num-results N] [--search-type neural|keyword|auto] [--include-text] [--include-highlights] [--start-published-date YYYY-MM-DD] [--include-domains DOMAIN...] [--exclude-domains DOMAIN...] [--category NAME] [--format json|markdown|content] [--output PATH]`
 - `smart-search exa-similar URL [--num-results N] [--format json|markdown|content] [--output PATH]`
 - `smart-search zhipu-search QUERY [--count N] [--search-engine NAME] [--search-recency-filter VALUE] [--search-domain-filter DOMAIN] [--content-size medium|high] [--format json|markdown|content] [--output PATH]`
 - `smart-search context7-library NAME [QUERY] [--format json|markdown|content] [--output PATH]`
@@ -78,11 +78,19 @@ Source provenance fields:
 - `primary_sources`: sources explicitly extracted from the primary model/provider answer.
 - `extra_sources`: parallel Tavily / Firecrawl candidates from `--extra-sources`; these are not automatic evidence for the generated `content`.
 - `sources`: backward-compatible merged list from `primary_sources + extra_sources`, deduped by URL.
+
+Exa domain filters:
+
+- `--include-domains` and `--exclude-domains` accept comma-separated or whitespace-separated domains.
+- Both `--include-domains docs.python.org,developer.mozilla.org` and `--include-domains docs.python.org developer.mozilla.org` normalize to the same Exa domain list.
+- This normalization is intentional for Windows PowerShell, where an unquoted comma expression can be forwarded through `.ps1` wrappers as a space-separated value.
 - `source_warning`: non-empty when extra source candidates were appended.
 
 Fetch output includes `ok`, `url`, `provider`, `content`, and `elapsed_ms`.
 
 Exa search output includes `ok`, `query`, `search_type`, `results`, `total`, and `elapsed_ms` when successful.
+
+Exa HTTP `400` or `422` failures are returned as `ok=false` with `error_type=parameter_error`; use this to distinguish bad CLI/domain/date/category arguments from upstream network failures.
 
 Exa similar output includes `ok`, `url`, `results`, `total`, and `elapsed_ms` when successful.
 
@@ -95,6 +103,35 @@ Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `el
 Diagnostic output masks keys, reports `config_file` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main-search provider check. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
 
 Smoke output includes `ok`, `mode`, `failed_cases`, `cases`, `provider_attempts`, and `elapsed_ms`. Live smoke may include `degraded_cases` when a provider fails but a same-capability fallback remains available.
+
+## Deep Research Skill Contract
+
+Deep Research is an optional skill-layer workflow for prompts such as `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, and selection/comparison research. It is not a new public CLI command and must not change default `smart-search search` behavior. The AI agent composes existing CLI commands; the CLI performs execution and writes JSON/Markdown evidence.
+
+Before execution, the skill should create a `research_plan` JSON artifact in the agent's working notes. This artifact is not emitted by the CLI. Required fields are:
+
+- `mode`: always `deep_research`.
+- `question`: the user's research question.
+- `difficulty`: `standard` or `high`.
+- `evidence_policy`: default `fetch_before_claim`.
+- `steps`: ordered CLI command steps.
+- `final_answer_policy`: how to cite fetched evidence and list unverified candidates.
+
+Each `steps[]` item must include `tool`, `purpose`, `command`, and `output_path`. Allowed `tool` values are `search`, `exa-search`, `zhipu-search`, `context7-docs`, `fetch`, and `map`; these map to existing CLI commands only. Use `C:\tmp\smart-search-evidence\<timestamp>-<slug>\` or an equivalent absolute evidence directory for `output_path` values.
+
+Default Deep Research flow:
+
+1. Run `smart-search doctor --format json` when configuration is uncertain.
+2. Use `smart-search search ... --validation balanced --extra-sources 3` for broad discovery.
+3. Use `exa-search` for official docs, papers, product pages, and low-noise source discovery.
+4. Use `zhipu-search` for Chinese, domestic, current, or domain-filtered source discovery.
+5. Use `context7-docs` only for docs/API/SDK/library/framework intent.
+6. Use `map` before fetching many pages from a documentation site.
+7. Use `fetch` for key URLs before making claim-level statements.
+
+`fetch_before_claim` means key claims must be backed by fetched page content. `primary_sources` and `extra_sources` are discovery candidates until fetched. Final answers should include fetched evidence, unverified candidate sources, and key commands used.
+
+Deep Research smoke coverage is mock-full plus live-limited. Mock-full coverage should cover trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence paths, Chinese current topics, English research topics, docs/API topics, user-provided URL fetch-first flows, and missing-provider failure guidance. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` when real keys are available and live checks are expected. If a smoke issue is found, fix the affected docs/code/tests and rerun the affected smoke until it passes or is proven to be an external provider blocker.
 
 Setup and config output should include `ok` and `config_file`. Saved API keys must be masked in command output.
 

@@ -92,6 +92,14 @@ smart-search
 
 注意：`extra_sources` 不是自动事实校验。也就是说，`sources_count > 0` 只能说明工具找到了来源链接，不代表回答里的每一句话都已经被这些链接验证。新闻、政策、财经、医疗等高风险问题，建议先用 `exa-search` 找可靠来源，再用 `fetch` 抓正文，最后只基于已抓取的正文做总结。
 
+### Deep Research 深度搜索
+
+`smart-search` 的默认 `search` 仍然是快速搜索入口；Deep Research 是 `smart-search-cli` skill 的可选工作流，不是新的 CLI 命令，也不依赖 MCP session。用户说“帮我深度搜索...”“深度调研...”时，AI 助手会先生成一个 `research_plan`，再像拼积木一样组合现有命令。
+
+Deep Research 计划至少包含 `mode`、`question`、`difficulty`、`evidence_policy`、`steps`、`final_answer_policy`。`steps[].tool` 只使用现有 CLI 积木：`search`、`exa-search`、`zhipu-search`、`context7-docs`、`fetch`、`map`；每一步都要写明用途、完整命令和输出文件路径。
+
+默认链路是：不确定配置时先 `doctor`，用 `search --validation balanced --extra-sources 3` 做广泛发现，用 `exa-search` / `zhipu-search` 找更可靠来源，对关键 URL 跑 `fetch` 抓正文，最终只把已抓到正文的内容当作结论证据。`primary_sources` 和 `extra_sources` 在 Deep Research 里只是候选来源，不能直接当作每句话的证明。
+
 ### 安装
 
 #### 普通用户：通过 npm 全局安装
@@ -333,8 +341,8 @@ smart-search exa-search "OpenAI Responses API documentation" --num-results 5 --i
 - `--search-type neural|keyword|auto`：选择 Exa 搜索类型。
 - `--include-text`：把网页正文片段也放进结果。
 - `--include-highlights`：返回 Exa 的 highlights。
-- `--include-domains CSV`：只搜索这些域名，例如 `docs.python.org,developer.mozilla.org`。
-- `--exclude-domains CSV`：排除这些域名。
+- `--include-domains DOMAIN...`：只搜索这些域名，例如 `docs.python.org developer.mozilla.org`，也兼容逗号分隔的 `docs.python.org,developer.mozilla.org`。
+- `--exclude-domains DOMAIN...`：排除这些域名，同样兼容空格或逗号分隔。
 - `--start-published-date YYYY-MM-DD`：只要某个日期之后发布的结果。
 - `--category NAME`：使用 Exa 支持的分类过滤。
 
@@ -566,6 +574,14 @@ Search output separates source provenance:
 - `sources`: the backward-compatible merged list, deduped from `primary_sources + extra_sources`.
 
 Important: `extra_sources` are not automatic fact verification. `sources_count > 0` means links were found; it does not prove every claim in `content`. For news, policy, finance, health, or other high-risk facts, use `exa-search` to find reliable pages, `fetch` key URLs, and summarize only from fetched page text.
+
+### Deep Research
+
+Default `smart-search search` remains the fast search entrypoint. Deep Research is an optional `smart-search-cli` skill workflow, not a new CLI command and not an MCP-session dependency. When the user asks for "deep search", "deep research", or similar multi-source verification, the AI agent first creates a `research_plan`, then composes existing CLI commands like building blocks.
+
+The plan includes `mode`, `question`, `difficulty`, `evidence_policy`, `steps`, and `final_answer_policy`. `steps[].tool` may only use existing CLI blocks: `search`, `exa-search`, `zhipu-search`, `context7-docs`, `fetch`, and `map`; each step must include its purpose, full command, and output path.
+
+The default chain is: run `doctor` when config is uncertain, use `search --validation balanced --extra-sources 3` for broad discovery, use `exa-search` / `zhipu-search` for source-first discovery, fetch key URLs, and cite only fetched page text for claim-level evidence. In Deep Research, `primary_sources` and `extra_sources` are candidates until fetched.
 
 ### Installation
 
@@ -803,8 +819,8 @@ Useful options:
 - `--search-type neural|keyword|auto`: Exa search type.
 - `--include-text`: include page text snippets.
 - `--include-highlights`: include Exa highlights.
-- `--include-domains CSV`: search only these domains, for example `docs.python.org,developer.mozilla.org`.
-- `--exclude-domains CSV`: exclude these domains.
+- `--include-domains DOMAIN...`: search only these domains, for example `docs.python.org developer.mozilla.org`; comma-separated `docs.python.org,developer.mozilla.org` is also accepted.
+- `--exclude-domains DOMAIN...`: exclude these domains; whitespace-separated and comma-separated forms are both accepted.
 - `--start-published-date YYYY-MM-DD`: only results after this date.
 - `--category NAME`: Exa category filter.
 

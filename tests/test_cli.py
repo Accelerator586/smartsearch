@@ -251,6 +251,33 @@ def test_fetch_alias_uses_canonical_command(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["url"] == "https://example.com"
 
 
+def test_exa_search_passes_powershell_split_domains(monkeypatch, capsys):
+    captured = {}
+
+    async def fake_exa_search(
+        query,
+        num_results=5,
+        search_type="neural",
+        include_text=False,
+        include_highlights=False,
+        start_published_date="",
+        include_domains="",
+        exclude_domains="",
+        category="",
+    ):
+        captured["query"] = query
+        captured["include_domains"] = include_domains
+        return {"ok": True, "query": query, "results": []}
+
+    monkeypatch.setattr(cli.service, "exa_search", fake_exa_search)
+
+    code = cli.main(["exa-search", "query", "--include-domains", "github.com", "freertos.org"])
+
+    assert code == cli.EXIT_OK
+    assert captured["include_domains"] == ["github.com", "freertos.org"]
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
 def test_doctor_alias_uses_canonical_command(monkeypatch, capsys):
     async def fake_doctor():
         return {"ok": True, "config_status": "ok"}

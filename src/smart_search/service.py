@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,17 @@ MAIN_SEARCH_PROVIDER_ALIASES = {
 
 def _elapsed_ms(start: float) -> float:
     return round((time.time() - start) * 1000, 2)
+
+
+def _normalize_domain_filter(value: str | list[str] | tuple[str, ...] | None) -> list[str] | None:
+    if not value:
+        return None
+
+    raw_parts = [value] if isinstance(value, str) else [str(item) for item in value if item]
+    domains: list[str] = []
+    for part in raw_parts:
+        domains.extend(item.strip() for item in re.split(r"[\s,]+", part) if item.strip())
+    return domains or None
 
 
 def _empty_search_result(
@@ -556,7 +568,7 @@ async def _run_docs_search_fallback(
                     if sources:
                         attempts.append(_attempt("docs_search", provider, "ok", start, result_count=len(sources)))
                         return sources, attempts
-                status = "error" if data.get("error_type") in {"auth_error", "timeout", "network_error", "runtime_error"} else "empty"
+                status = "error" if data.get("error_type") in {"auth_error", "parameter_error", "rate_limited", "timeout", "network_error", "runtime_error"} else "empty"
                 attempts.append(_attempt("docs_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", "")))
             elif provider == "context7":
                 data = await context7_library(query, query)
@@ -1092,8 +1104,8 @@ async def exa_search(
     include_text: bool = False,
     include_highlights: bool = False,
     start_published_date: str = "",
-    include_domains: str = "",
-    exclude_domains: str = "",
+    include_domains: str | list[str] | tuple[str, ...] = "",
+    exclude_domains: str | list[str] | tuple[str, ...] = "",
     category: str = "",
 ) -> dict[str, Any]:
     api_key = config.exa_api_key
@@ -1105,8 +1117,8 @@ async def exa_search(
         }
 
     provider = ExaSearchProvider(config.exa_base_url, api_key, config.exa_timeout)
-    include_domain_list = [d.strip() for d in include_domains.split(",") if d.strip()] if include_domains else None
-    exclude_domain_list = [d.strip() for d in exclude_domains.split(",") if d.strip()] if exclude_domains else None
+    include_domain_list = _normalize_domain_filter(include_domains)
+    exclude_domain_list = _normalize_domain_filter(exclude_domains)
 
     raw = await provider.search(
         query=query,

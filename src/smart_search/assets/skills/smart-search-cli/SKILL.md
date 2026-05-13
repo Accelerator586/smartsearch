@@ -24,6 +24,46 @@ Use the local `smart-search` command as the default execution layer for web rese
 13. For current-news, policy, finance, health, or other high-risk facts, do not answer from broad `search.content` alone. Find reliable URLs with `exa-search`, `zhipu-search`, or source-focused `search`, then `fetch` key pages and summarize only what the fetched text supports.
 14. Preserve command lines and source URLs in your answer. Prefer citing fetched pages or `primary_sources`; treat `extra_sources` as follow-up candidates, not verified evidence for generated claims.
 
+## Deep Research Mode
+
+Use Deep Research Mode when the user asks for `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, or selection/comparison research. This is a skill-layer workflow: the AI agent composes existing `smart-search` CLI building blocks, the CLI executes them, and JSON/Markdown files provide reproducible evidence. It does not add or require a `smart-search deep` command, does not change default `smart-search search`, and does not depend on an MCP session.
+
+Before running deep research commands, create a `research_plan` JSON planning artifact in your working notes. It is not a public CLI output. Use this shape:
+
+```json
+{
+  "mode": "deep_research",
+  "question": "user question",
+  "difficulty": "standard|high",
+  "evidence_policy": "fetch_before_claim",
+  "steps": [
+    {
+      "tool": "search",
+      "purpose": "broad discovery",
+      "command": "smart-search search \"query\" --validation balanced --extra-sources 3 --format json --output C:\\tmp\\smart-search-evidence\\YYYYMMDD-HHMM-topic\\01-search.json",
+      "output_path": "C:\\tmp\\smart-search-evidence\\YYYYMMDD-HHMM-topic\\01-search.json"
+    }
+  ],
+  "final_answer_policy": "cite fetched evidence, list unverified candidates, and include key commands"
+}
+```
+
+Allowed `steps[].tool` values are `search`, `exa-search`, `zhipu-search`, `context7-docs`, `fetch`, and `map`. Each step must include `purpose`, `command`, and `output_path`. Keep the first plan to 2-5 sub-queries unless the user explicitly asks for exhaustive coverage.
+
+Default Deep Research chain:
+
+1. Run `smart-search doctor --format json` when configuration is uncertain.
+2. Use `search --validation balanced --extra-sources 3` for broad discovery.
+3. Use `exa-search` for official docs, papers, product pages, and low-noise source discovery.
+4. Use `zhipu-search` for Chinese, domestic, current, or domain-filtered source discovery.
+5. Use `context7-docs` only for library, SDK, API, framework, or documentation intent.
+6. Use `map` before fetching many pages from one documentation site.
+7. Use `fetch` on key URLs before making claim-level statements.
+
+Default evidence policy is `fetch_before_claim`: key claims in the final answer must be supported by fetched page text. Treat `primary_sources` and `extra_sources` as discovery candidates until the relevant URL has been fetched. The final answer should include fetched evidence, unverified candidate sources, and key commands used.
+
+Deep Research smoke matrix for workflow maintenance is mock-full plus live-limited. Mock-full coverage should include trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence output paths, Chinese current topics, English research topics, docs/API topics, user-provided URL fetch-first flows, and missing-provider failure guidance. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` only when real keys are available and the user expects live checks.
+
 ## Provider Routing
 
 - `search` builds `main_search` from configured peer providers: `XAI_API_KEY` for xAI Responses and `OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY` for OpenAI-compatible Chat Completions.
@@ -60,7 +100,7 @@ Prefer shorter, source-directed commands:
 
 ```powershell
 smart-search exa-search "Reuters Iran Hormuz latest" --num-results 5 --include-highlights --format json --output C:\tmp\smart-search-evidence\iran-hormuz-exa.json
-smart-search exa-search "OpenAI Responses API documentation" --include-domains platform.openai.com,developers.openai.com --num-results 5 --include-text --format json
+smart-search exa-search "OpenAI Responses API documentation" --include-domains platform.openai.com developers.openai.com --num-results 5 --include-text --format json
 smart-search exa-similar "https://example.com/source" --num-results 5 --format json
 smart-search fetch "https://example.com/source" --format json --output C:\tmp\smart-search-evidence\source-fetch.json
 smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --timeout 90 --format json --output C:\tmp\smart-search-evidence\iran-hormuz-search.json
@@ -90,7 +130,7 @@ smart-search search "query" --extra-sources 5 --timeout 90 --format json --outpu
 smart-search search "query" --platform "Reuters" --model "model-id" --extra-sources 3 --timeout 90 --format json
 smart-search search "nba战报" --format content
 smart-search search "query" --validation strict --fallback auto --providers auto --format json
-smart-search exa-search "query" --num-results 5 --search-type neural --include-text --include-highlights --include-domains docs.example.com --format json
+smart-search exa-search "query" --num-results 5 --search-type neural --include-text --include-highlights --include-domains docs.example.com developer.mozilla.org --format json
 smart-search exa-similar "https://example.com/article" --num-results 5 --format json
 smart-search context7-library "react" "hooks" --format json
 smart-search context7-docs "/facebook/react" "useEffect cleanup" --format json
