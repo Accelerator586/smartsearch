@@ -106,6 +106,8 @@ def test_release_docs_explain_beta_lane_and_npm_immutability():
         "npm `E409`",
         "machine-readable gap check",
         "mise use -g",
+        "non-ASCII JSON",
+        "ConvertFrom-Json",
     ]
     for marker in required_markers:
         assert marker in readme
@@ -119,6 +121,7 @@ def test_release_docs_explain_beta_lane_and_npm_immutability():
         "npm `E409`",
         "diff-style gap check",
         "smart-search smoke --mock --format json",
+        "Windows npm/mise wrapper is emitting UTF-8 JSON",
     ]
     for marker in contract_markers:
         assert marker in public_contract

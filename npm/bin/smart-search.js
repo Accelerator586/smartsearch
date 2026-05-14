@@ -28,7 +28,9 @@ const child = spawn(
     stdio: "inherit",
     env: {
       ...process.env,
-      SMART_SEARCH_PACKAGE_ROOT: packageRoot
+      SMART_SEARCH_PACKAGE_ROOT: packageRoot,
+      PYTHONIOENCODING: process.env.PYTHONIOENCODING || "utf-8",
+      PYTHONUTF8: process.env.PYTHONUTF8 || "1"
     },
     windowsHide: true
   }

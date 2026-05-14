@@ -1058,4 +1058,7 @@ Release closeout checklist:
    `mise use -g "npm:@konbakuyomu/smart-search@0.1.10-beta.3" -y --pin`, then
    run `mise reshim npm:@konbakuyomu/smart-search`, `where.exe smart-search`,
    `smart-search --version`, `smart-search regression`, and
-   `smart-search smoke --mock --format json`.
+   `smart-search smoke --mock --format json`. Also verify a non-ASCII JSON
+   pipe such as
+   `smart-search deep "深度搜索一下最近的比特币行情" --format json | ConvertFrom-Json`
+   so Windows npm/mise wrapper encoding issues are caught before closeout.

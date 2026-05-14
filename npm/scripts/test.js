@@ -25,6 +25,24 @@ function run(command, args, options = {}) {
   }
 }
 
+function capture(command, args) {
+  const result = spawnSync(command, args, {
+    cwd: packageRoot,
+    encoding: "utf8",
+    windowsHide: true
+  });
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+  if (result.status !== 0) {
+    process.stdout.write(result.stdout || "");
+    process.stderr.write(result.stderr || "");
+    process.exit(result.status || 1);
+  }
+  return result.stdout || "";
+}
+
 function runNpm(args) {
   if (process.env.npm_execpath) {
     run(process.execPath, [process.env.npm_execpath, ...args]);
@@ -41,4 +59,16 @@ if (!fs.existsSync(pythonPath)) {
 run(pythonPath, ["-m", "pip", "install", "--disable-pip-version-check", "-e", ".[dev]"]);
 run(pythonPath, ["-m", "pytest"]);
 run(process.execPath, ["npm/bin/smart-search.js", "--help"]);
+const deepJson = capture(process.execPath, [
+  "npm/bin/smart-search.js",
+  "deep",
+  "深度搜索一下最近的比特币行情",
+  "--format",
+  "json"
+]);
+const deepPlan = JSON.parse(deepJson);
+if (deepPlan.question !== "深度搜索一下最近的比特币行情") {
+  console.error("npm wrapper must preserve non-ASCII CLI arguments and JSON output as UTF-8.");
+  process.exit(1);
+}
 runNpm(["pack", "--dry-run"]);
