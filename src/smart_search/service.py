@@ -171,7 +171,7 @@ def _empty_search_result(
         "error": error,
         "session_id": session_id,
         "query": query,
-        "primary_api_mode": primary_api_mode or config.smart_search_api_mode,
+        "primary_api_mode": primary_api_mode,
         "content": "",
         "sources": [],
         "sources_count": 0,
@@ -681,15 +681,6 @@ def _configured_main_search_provider_ids() -> list[str]:
     if config.openai_compatible_api_url and config.openai_compatible_api_key:
         configured.add("openai-compatible")
 
-    legacy_url = config._get_config_value("SMART_SEARCH_API_URL")
-    legacy_key = config._get_config_value("SMART_SEARCH_API_KEY")
-    if legacy_url and legacy_key:
-        try:
-            legacy_mode = config.resolve_primary_api_mode(legacy_url)
-        except ValueError:
-            legacy_mode = "chat-completions"
-        configured.add("xai-responses" if legacy_mode == "xai-responses" else "openai-compatible")
-
     return [provider for provider in MAIN_SEARCH_FALLBACK_CHAIN if provider in configured]
 
 
@@ -718,23 +709,6 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "tools": [],
             "source": "OPENAI_COMPATIBLE_*",
         }
-
-    legacy_url = config._get_config_value("SMART_SEARCH_API_URL")
-    legacy_key = config._get_config_value("SMART_SEARCH_API_KEY")
-    if legacy_url and legacy_key:
-        legacy_mode = config.resolve_primary_api_mode(legacy_url)
-        provider_id = "xai-responses" if legacy_mode == "xai-responses" else "openai-compatible"
-        if provider_id not in by_provider:
-            legacy_model = model_override or config.apply_model_suffix_for_url(config._base_model_value(), legacy_url)
-            by_provider[provider_id] = {
-                "provider": provider_id,
-                "mode": legacy_mode,
-                "api_url": legacy_url,
-                "api_key": legacy_key,
-                "model": legacy_model,
-                "tools": config.parse_xai_tools(config.smart_search_xai_tools_raw) if legacy_mode == "xai-responses" else [],
-                "source": "SMART_SEARCH_API_*",
-            }
 
     return [
         by_provider[provider]
@@ -1641,42 +1615,61 @@ async def _test_primary_chat_completion(api_url: str, api_key: str, model: str) 
 
 
 async def _test_primary_connection(api_url: str, api_key: str, model: str) -> dict[str, Any]:
+    chat_test = await _test_primary_chat_completion(api_url, api_key, model)
+
     models_url = f"{api_url.rstrip('/')}/models"
     start = time.time()
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            models_url,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        )
-        response_time = _elapsed_ms(start)
-        if response.status_code != 200:
-            models_test = {"status": "warning", "message": f"HTTP {response.status_code}: {response.text[:100]}", "response_time_ms": response_time}
-            chat_test = await _test_primary_chat_completion(api_url, api_key, model)
-            if chat_test.get("status") == "ok":
-                return {
-                    "status": "ok",
-                    "message": f"{chat_test['message']}；模型列表接口不可用: {models_test['message']}",
-                    "response_time_ms": chat_test.get("response_time_ms"),
-                    "models_endpoint_test": models_test,
-                    "chat_completion_test": chat_test,
-                }
-            return {
-                "status": "warning",
-                "message": f"模型列表接口不可用: {models_test['message']}；聊天接口不可用: {chat_test.get('message', '')}",
-                "response_time_ms": chat_test.get("response_time_ms", response_time),
-                "models_endpoint_test": models_test,
-                "chat_completion_test": chat_test,
-            }
-        result: dict[str, Any] = {"status": "ok", "message": f"成功获取模型列表 (HTTP {response.status_code})", "response_time_ms": response_time}
-        try:
-            models_data = response.json()
-            model_names = [m["id"] for m in models_data.get("data", []) if isinstance(m, dict) and "id" in m]
-            result["message"] += f"，共 {len(model_names)} 个模型"
-            if model_names:
-                result["available_models"] = model_names
-        except Exception:
-            pass
-        return result
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                models_url,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            )
+            response_time = _elapsed_ms(start)
+            if response.status_code != 200:
+                models_test = {"status": "warning", "message": f"HTTP {response.status_code}: {response.text[:100]}", "response_time_ms": response_time}
+            else:
+                models_test = {"status": "ok", "message": f"成功获取模型列表 (HTTP {response.status_code})", "response_time_ms": response_time}
+                try:
+                    models_data = response.json()
+                    model_names = [m["id"] for m in models_data.get("data", []) if isinstance(m, dict) and "id" in m]
+                    models_test["message"] += f"，共 {len(model_names)} 个模型"
+                    if model_names:
+                        models_test["available_models"] = model_names
+                except Exception:
+                    pass
+    except httpx.HTTPError as e:
+        models_test = {"status": "warning", "message": f"模型列表接口请求失败: {e}", "response_time_ms": _elapsed_ms(start)}
+
+    if chat_test.get("status") != "ok":
+        models_state = "可用" if models_test.get("status") == "ok" else "不可用"
+        return {
+            "status": "warning",
+            "message": f"聊天接口不可用: {chat_test.get('message', '')}；模型列表接口{models_state}: {models_test['message']}",
+            "response_time_ms": chat_test.get("response_time_ms", models_test.get("response_time_ms")),
+            "models_endpoint_test": models_test,
+            "chat_completion_test": chat_test,
+        }
+
+    if models_test.get("status") != "ok":
+        return {
+            "status": "ok",
+            "message": f"{chat_test['message']}；模型列表接口不可用: {models_test['message']}",
+            "response_time_ms": chat_test.get("response_time_ms"),
+            "models_endpoint_test": models_test,
+            "chat_completion_test": chat_test,
+        }
+
+    result: dict[str, Any] = {
+        "status": "ok",
+        "message": f"{chat_test['message']}；{models_test['message']}",
+        "response_time_ms": chat_test.get("response_time_ms"),
+        "models_endpoint_test": models_test,
+        "chat_completion_test": chat_test,
+    }
+    if "available_models" in models_test:
+        result["available_models"] = models_test["available_models"]
+    return result
 
 
 async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dict[str, Any]:
@@ -1853,13 +1846,24 @@ async def doctor() -> dict[str, Any]:
 
 
 def current_model() -> dict[str, Any]:
-    return {"ok": True, "model": config.smart_search_model, "config_file": str(config.config_file)}
+    return {
+        "ok": True,
+        "xai_model": config.xai_model,
+        "openai_compatible_model": config.openai_compatible_model,
+        "config_file": str(config.config_file),
+    }
 
 
 def set_model(model: str) -> dict[str, Any]:
-    previous = config.smart_search_model
-    config.set_model(model)
-    return {"ok": True, "previous_model": previous, "current_model": config.smart_search_model, "config_file": str(config.config_file)}
+    return {
+        "ok": False,
+        "error_type": "parameter_error",
+        "error": (
+            "The legacy default model command was removed. Use `smart-search config set XAI_MODEL <model>` "
+            "or `smart-search config set OPENAI_COMPATIBLE_MODEL <model>`."
+        ),
+        "config_file": str(config.config_file),
+    }
 
 
 def config_path() -> dict[str, Any]:
@@ -1875,7 +1879,10 @@ def config_list(show_secrets: bool = False) -> dict[str, Any]:
 
 
 def config_set(key: str, value: str) -> dict[str, Any]:
-    config.set_config_value(key, value)
+    try:
+        config.set_config_value(key, value)
+    except ValueError as e:
+        return {"ok": False, "error_type": "parameter_error", "error": str(e), "config_file": str(config.config_file)}
     saved = config.get_saved_config(masked=True)
     return {
         "ok": True,
@@ -1886,7 +1893,10 @@ def config_set(key: str, value: str) -> dict[str, Any]:
 
 
 def config_unset(key: str) -> dict[str, Any]:
-    config.unset_config_value(key)
+    try:
+        config.unset_config_value(key)
+    except ValueError as e:
+        return {"ok": False, "error_type": "parameter_error", "error": str(e), "config_file": str(config.config_file), "key": key.strip().upper()}
     return {"ok": True, "config_file": str(config.config_file), "key": key.strip().upper()}
 
 

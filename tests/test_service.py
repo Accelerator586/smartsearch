@@ -11,11 +11,6 @@ def _reset_config(monkeypatch, tmp_path):
     monkeypatch.setattr(service.config, "_config_file", fake_config_file)
     monkeypatch.setattr(service.config, "_cached_model", None)
     for key in [
-        "SMART_SEARCH_API_URL",
-        "SMART_SEARCH_API_KEY",
-        "SMART_SEARCH_API_MODE",
-        "SMART_SEARCH_XAI_TOOLS",
-        "SMART_SEARCH_MODEL",
         "XAI_API_URL",
         "XAI_API_KEY",
         "XAI_MODEL",
@@ -38,83 +33,80 @@ def _reset_config(monkeypatch, tmp_path):
     return fake_config_file
 
 
-def test_model_set_and_current_use_temp_config(monkeypatch):
-    fake_config_file = service.Path("memory:/smart-search-test-config.json")
-    stored_config = {}
+def test_model_set_is_removed_and_current_reports_explicit_models(monkeypatch, tmp_path):
+    fake_config_file = _reset_config(monkeypatch, tmp_path)
 
-    def fake_load_config_file():
-        return stored_config.copy()
+    service.config_set("XAI_MODEL", "xai-model")
+    service.config_set("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    service.config_set("OPENAI_COMPATIBLE_MODEL", "relay-model")
 
-    def fake_save_config_file(config_data):
-        stored_config.clear()
-        stored_config.update(config_data)
-
-    monkeypatch.setattr(service.config, "_config_file", fake_config_file)
-    monkeypatch.setattr(service.config, "_cached_model", None)
-    monkeypatch.setattr(service.config, "_load_config_file", fake_load_config_file)
-    monkeypatch.setattr(service.config, "_save_config_file", fake_save_config_file)
-    monkeypatch.delenv("SMART_SEARCH_MODEL", raising=False)
-
-    set_result = service.set_model("grok-4-fast")
+    set_result = service.set_model("legacy-model")
     current_result = service.current_model()
 
-    assert set_result["ok"] is True
-    assert set_result["current_model"] == "grok-4-fast"
-    assert current_result["model"] == "grok-4-fast"
-    assert stored_config["SMART_SEARCH_MODEL"] == "grok-4-fast"
-    assert set_result["config_file"] == str(fake_config_file)
+    assert set_result["ok"] is False
+    assert set_result["error_type"] == "parameter_error"
+    assert "XAI_MODEL" in set_result["error"]
+    assert current_result["xai_model"] == "xai-model"
+    assert current_result["openai_compatible_model"] == "relay-model"
+    assert current_result["config_file"] == str(fake_config_file)
 
 
 def test_config_set_list_unset_and_path(monkeypatch, tmp_path):
     fake_config_file = _reset_config(monkeypatch, tmp_path)
 
-    set_result = service.config_set("SMART_SEARCH_API_KEY", "sk-test-secret")
+    set_result = service.config_set("XAI_API_KEY", "xai-test-secret")
     list_result = service.config_list()
     path_result = service.config_path()
 
     assert set_result["ok"] is True
-    assert set_result["value"].startswith("sk-t")
+    assert set_result["value"].startswith("xai-")
     assert "secret" not in json.dumps(list_result)
-    assert list_result["values"]["SMART_SEARCH_API_KEY"].startswith("sk-t")
+    assert list_result["values"]["XAI_API_KEY"].startswith("xai-")
     assert path_result["config_file"] == str(fake_config_file)
 
-    unset_result = service.config_unset("SMART_SEARCH_API_KEY")
+    unset_result = service.config_unset("XAI_API_KEY")
     assert unset_result["ok"] is True
-    assert "SMART_SEARCH_API_KEY" not in service.config_list()["values"]
+    assert "XAI_API_KEY" not in service.config_list()["values"]
 
 
-def test_config_file_supplies_primary_settings(monkeypatch, tmp_path):
+def test_config_file_supplies_explicit_main_settings(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
-    service.config_set("SMART_SEARCH_API_URL", "https://config.example.com/v1")
-    service.config_set("SMART_SEARCH_API_KEY", "sk-config-secret")
-    service.config_set("SMART_SEARCH_MODEL", "config-model")
+    service.config_set("XAI_API_URL", "https://xai.example.com/v1")
+    service.config_set("XAI_API_KEY", "xai-config-secret")
+    service.config_set("XAI_MODEL", "xai-config-model")
+    service.config_set("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    service.config_set("OPENAI_COMPATIBLE_API_KEY", "relay-config-secret")
+    service.config_set("OPENAI_COMPATIBLE_MODEL", "relay-config-model")
 
-    assert service.config.smart_search_api_url == "https://config.example.com/v1"
-    assert service.config.smart_search_api_key == "sk-config-secret"
-    assert service.config.smart_search_model == "config-model"
+    assert service.config.xai_api_url == "https://xai.example.com/v1"
+    assert service.config.xai_api_key == "xai-config-secret"
+    assert service.config.xai_model == "xai-config-model"
+    assert service.config.openai_compatible_api_url == "https://relay.example.com/v1"
+    assert service.config.openai_compatible_api_key == "relay-config-secret"
+    assert service.config.openai_compatible_model == "relay-config-model"
 
 
 def test_environment_overrides_config_file(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
-    service.config_set("SMART_SEARCH_API_URL", "https://config.example.com/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://env.example.com/v1")
+    service.config_set("OPENAI_COMPATIBLE_API_URL", "https://config.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://env.example.com/v1")
 
-    assert service.config.smart_search_api_url == "https://env.example.com/v1"
-    assert service.config.get_config_source("SMART_SEARCH_API_URL") == "environment"
-    assert service.config.get_config_source("SMART_SEARCH_API_KEY") == "default"
+    assert service.config.openai_compatible_api_url == "https://env.example.com/v1"
+    assert service.config.get_config_source("OPENAI_COMPATIBLE_API_URL") == "environment"
+    assert service.config.get_config_source("OPENAI_COMPATIBLE_API_KEY") == "default"
 
 
 def test_config_sources_report_config_file(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
-    service.config_set("SMART_SEARCH_API_KEY", "sk-config-secret")
+    service.config_set("XAI_API_KEY", "xai-config-secret")
 
     sources = service.config.get_config_sources()
 
-    assert sources["SMART_SEARCH_API_KEY"] == "config_file"
-    assert sources["SMART_SEARCH_API_URL"] == "default"
+    assert sources["XAI_API_KEY"] == "config_file"
+    assert sources["XAI_API_URL"] == "default"
 
 
 def test_deep_research_plan_current_market_is_offline_and_fetch_before_claim(monkeypatch):
@@ -188,30 +180,48 @@ def test_deep_research_quick_budget_keeps_fetch_and_valid_subquestion_links():
         assert step["output_path"] in step["command"]
 
 
-def test_primary_api_mode_auto_resolves_xai(monkeypatch, tmp_path):
+def test_legacy_main_search_config_keys_are_rejected(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
-    assert service.config.resolve_primary_api_mode("https://api.x.ai/v1") == "xai-responses"
-    assert service.config.resolve_primary_api_mode("https://api.example.com/v1") == "chat-completions"
+    for key in [
+        "SMART_SEARCH_API_URL",
+        "SMART_SEARCH_API_KEY",
+        "SMART_SEARCH_API_MODE",
+        "SMART_SEARCH_MODEL",
+        "SMART_SEARCH_XAI_TOOLS",
+    ]:
+        result = service.config_set(key, "legacy")
+        assert result["ok"] is False
+        assert result["error_type"] == "parameter_error"
+        assert f"Unsupported config key: {key}" in result["error"]
 
 
-def test_primary_api_mode_can_be_configured(monkeypatch, tmp_path):
+def test_legacy_main_search_config_keys_are_ignored_from_saved_config(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
-    service.config_set("SMART_SEARCH_API_MODE", "chat-completions")
+    service.config._save_config_file(
+        {
+            "SMART_SEARCH_API_URL": "https://legacy.example.com/v1",
+            "SMART_SEARCH_API_KEY": "legacy-secret",
+            "XAI_API_KEY": "xai-config-secret",
+        }
+    )
 
-    assert service.config.resolve_primary_api_mode("https://api.x.ai/v1") == "chat-completions"
-    assert service.config.get_config_sources()["SMART_SEARCH_API_MODE"] == "config_file"
+    saved = service.config_list()["values"]
+
+    assert "SMART_SEARCH_API_URL" not in saved
+    assert "SMART_SEARCH_API_KEY" not in saved
+    assert saved["XAI_API_KEY"].startswith("xai-")
 
 
 def test_xai_tools_validation(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
-    service.config_set("SMART_SEARCH_XAI_TOOLS", "web_search,x_search,web_search")
+    service.config_set("XAI_TOOLS", "web_search,x_search,web_search")
     assert service.config.parse_xai_tools() == ["web_search", "x_search"]
 
-    service.config_set("SMART_SEARCH_XAI_TOOLS", "web_search,bad_tool")
-    with pytest.raises(ValueError, match="Invalid SMART_SEARCH_XAI_TOOLS"):
+    service.config_set("XAI_TOOLS", "web_search,bad_tool")
+    with pytest.raises(ValueError, match="Invalid XAI_TOOLS"):
         service.config.parse_xai_tools()
 
 
@@ -251,8 +261,8 @@ async def test_zhipu_search_uses_configured_engine_and_command_override(monkeypa
 
 @pytest.mark.asyncio
 async def test_search_returns_sources(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test-secret")
 
     async def fake_search(self, query, platform="", ctx=None):
         return 'Answer.\n\nsources([{"url":"https://example.com","title":"Example"}])'
@@ -277,8 +287,8 @@ async def test_search_returns_sources(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_search_splits_primary_and_extra_sources(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test-secret")
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-secret")
 
     async def fake_search(self, query, platform="", ctx=None):
@@ -304,9 +314,8 @@ async def test_search_splits_primary_and_extra_sources(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_search_uses_xai_responses_for_api_x_ai(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+async def test_search_uses_xai_responses_for_explicit_xai_config(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
     captured = {}
 
     async def fake_search(self, query, platform="", ctx=None):
@@ -540,8 +549,9 @@ async def test_strict_still_uses_web_search_without_current_keyword(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_search_respects_fallback_off_for_main_search(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
 
     async def failing_xai(self, query, platform="", ctx=None):
         request = httpx.Request("POST", "https://api.x.ai/v1/responses")
@@ -563,23 +573,21 @@ async def test_search_respects_fallback_off_for_main_search(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_search_reports_invalid_xai_tools_as_parameter_error(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
-    monkeypatch.setenv("SMART_SEARCH_XAI_TOOLS", "web_search,code_interpreter")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("XAI_TOOLS", "web_search,code_interpreter")
 
     result = await service.search("what is example")
 
     assert result["ok"] is False
     assert result["error_type"] == "parameter_error"
-    assert "Invalid SMART_SEARCH_XAI_TOOLS" in result["error"]
+    assert "Invalid XAI_TOOLS" in result["error"]
     assert result["primary_sources"] == []
     assert result["extra_sources"] == []
 
 
 @pytest.mark.asyncio
 async def test_search_reports_primary_provider_http_error(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
 
     async def failing_search(self, query, platform="", ctx=None):
         request = httpx.Request("POST", "https://api.x.ai/v1/responses")
@@ -844,8 +852,7 @@ async def test_exa_search_preserves_provider_error_type(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_doctor_redacts_secret_and_reports_config_error(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "placeholder-test-secret")
-    monkeypatch.delenv("SMART_SEARCH_API_URL", raising=False)
+    monkeypatch.setenv("UNSUPPORTED_SECRET_KEY", "placeholder-test-secret")
 
     result = await service.doctor()
     dumped = json.dumps(result, ensure_ascii=False)
@@ -860,8 +867,8 @@ async def test_doctor_redacts_secret_and_reports_config_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_doctor_reports_invalid_validation_config(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test-secret")
     monkeypatch.setenv("SMART_SEARCH_VALIDATION_LEVEL", "banana")
 
     result = await service.doctor()
@@ -873,7 +880,7 @@ async def test_doctor_reports_invalid_validation_config(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_primary_connection_falls_back_to_chat_when_models_endpoint_fails(monkeypatch):
+async def test_primary_connection_checks_chat_even_when_models_endpoint_fails(monkeypatch):
     calls = []
 
     class FakeAsyncClient:
@@ -907,16 +914,53 @@ async def test_primary_connection_falls_back_to_chat_when_models_endpoint_fails(
     result = await service._test_primary_connection("https://api.example.com/v1", "sk-test-secret", "grok-4.3")
 
     assert result["status"] == "ok"
-    assert result["models_endpoint_test"]["status"] == "warning"
     assert result["chat_completion_test"]["status"] == "ok"
-    assert calls[0] == ("get", "https://api.example.com/v1/models")
-    assert calls[1] == ("post", "https://api.example.com/v1/chat/completions", "grok-4.3")
+    assert result["models_endpoint_test"]["status"] == "warning"
+    assert calls[0] == ("post", "https://api.example.com/v1/chat/completions", "grok-4.3")
+    assert calls[1] == ("get", "https://api.example.com/v1/models")
 
 
 @pytest.mark.asyncio
-async def test_doctor_uses_responses_endpoint_for_xai_mode(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.x.ai/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+async def test_primary_connection_keeps_chat_ok_when_models_probe_errors(monkeypatch):
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            calls.append(("get", url))
+            raise httpx.ConnectError("models unavailable", request=httpx.Request("GET", url))
+
+        async def post(self, url, headers, json):
+            calls.append(("post", url, json["model"]))
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "ok"}}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await service._test_primary_connection("https://api.example.com/v1", "sk-test-secret", "grok-4.3")
+
+    assert result["status"] == "ok"
+    assert result["chat_completion_test"]["status"] == "ok"
+    assert result["models_endpoint_test"]["status"] == "warning"
+    assert "模型列表接口请求失败" in result["models_endpoint_test"]["message"]
+    assert calls[0] == ("post", "https://api.example.com/v1/chat/completions", "grok-4.3")
+    assert calls[1] == ("get", "https://api.example.com/v1/models")
+
+
+@pytest.mark.asyncio
+async def test_doctor_uses_responses_endpoint_for_explicit_xai_config(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
     calls = []
 
     class FakeAsyncClient:
@@ -943,10 +987,57 @@ async def test_doctor_uses_responses_endpoint_for_xai_mode(monkeypatch):
 
     assert result["ok"] is True
     assert result["primary_api_mode"] == "xai-responses"
-    assert result["primary_api_mode_source"] == "default"
+    assert result["primary_api_mode_source"] == "config_file"
     assert result["primary_connection_test"]["status"] == "ok"
     assert calls[0][0] == "https://api.x.ai/v1/responses"
     assert "tools" not in calls[0][1]
+
+
+@pytest.mark.asyncio
+async def test_doctor_uses_chat_completions_for_only_openai_compatible_config(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            calls.append(("get", url))
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "relay-model"}]},
+                request=httpx.Request("GET", url),
+            )
+
+        async def post(self, url, headers, json):
+            calls.append(("post", url, json))
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "ok"}}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await service.doctor()
+
+    assert result["primary_api_mode"] == "chat-completions"
+    assert result["primary_connection_test"]["status"] == "ok"
+    assert result["primary_connection_test"]["chat_completion_test"]["status"] == "ok"
+    assert result["primary_connection_test"]["models_endpoint_test"]["status"] == "ok"
+    assert list(result["main_search_connection_tests"]) == ["openai-compatible"]
+    assert result["capability_status"]["main_search"]["configured"] == ["openai-compatible"]
+    assert calls[0][0] == "post"
+    assert calls[0][1] == "https://relay.example.com/v1/chat/completions"
+    assert calls[1] == ("get", "https://relay.example.com/v1/models")
 
 
 @pytest.mark.asyncio

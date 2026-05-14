@@ -113,9 +113,9 @@ def test_command_aliases_parse_to_canonical_commands():
         (["cfg", "p"], "path"),
         (["cfg", "ls"], "list"),
         (["cfg", "l"], "list"),
-        (["cfg", "s", "SMART_SEARCH_MODEL", "grok"], "set"),
-        (["cfg", "rm", "SMART_SEARCH_MODEL"], "unset"),
-        (["cfg", "u", "SMART_SEARCH_MODEL"], "unset"),
+        (["cfg", "s", "XAI_MODEL", "grok"], "set"),
+        (["cfg", "rm", "XAI_MODEL"], "unset"),
+        (["cfg", "u", "XAI_MODEL"], "unset"),
     ]
     for argv, config_command in config_cases:
         assert parser.parse_args(argv).config_command == config_command
@@ -464,14 +464,14 @@ def test_markdown_search_labels_primary_and_extra_sources(monkeypatch, capsys):
 
 def test_config_error_exit_code(monkeypatch, capsys):
     async def fake_doctor():
-        return {"ok": False, "error_type": "config_error", "SMART_SEARCH_API_KEY": "未配置"}
+        return {"ok": False, "error_type": "config_error", "XAI_API_KEY": "未配置"}
 
     monkeypatch.setattr(cli.service, "doctor", fake_doctor)
 
     code = cli.main(["doctor"])
 
     assert code == cli.EXIT_CONFIG_ERROR
-    assert json.loads(capsys.readouterr().out)["SMART_SEARCH_API_KEY"] == "未配置"
+    assert json.loads(capsys.readouterr().out)["XAI_API_KEY"] == "未配置"
 
 
 def test_network_error_exit_code(monkeypatch, capsys):
@@ -512,10 +512,13 @@ def test_gbk_stdout_keeps_json_parseable_with_chinese_and_unencodable_unicode(mo
     assert json.loads(out)["content"] == "中文A\u2060B📅"
 
 
-def test_real_doctor_missing_primary_url_returns_config_exit(monkeypatch, capsys):
+def test_real_doctor_ignores_legacy_primary_env_and_returns_config_exit(monkeypatch, capsys):
     secret = "placeholder-test-secret"
-    monkeypatch.delenv("SMART_SEARCH_API_URL", raising=False)
+    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
     monkeypatch.setenv("SMART_SEARCH_API_KEY", secret)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_COMPATIBLE_API_URL", raising=False)
+    monkeypatch.delenv("OPENAI_COMPATIBLE_API_KEY", raising=False)
     monkeypatch.delenv("EXA_API_KEY", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
@@ -527,19 +530,27 @@ def test_real_doctor_missing_primary_url_returns_config_exit(monkeypatch, capsys
     assert code == cli.EXIT_CONFIG_ERROR
     assert data["ok"] is False
     assert data["error_type"] == "config_error"
+    assert "SMART_SEARCH_API_URL" not in data
+    assert "SMART_SEARCH_API_KEY" not in data
+    assert data["capability_status"]["main_search"]["configured"] == []
     assert secret not in out
 
 
-def test_model_set_uses_service(monkeypatch, capsys):
+def test_model_set_returns_parameter_error(monkeypatch, capsys):
     def fake_set_model(model):
-        return {"ok": True, "previous_model": "old", "current_model": model, "config_file": "C:/tmp/smart-search-config.json"}
+        return {
+            "ok": False,
+            "error_type": "parameter_error",
+            "error": "Use XAI_MODEL or OPENAI_COMPATIBLE_MODEL.",
+            "config_file": "C:/tmp/smart-search-config.json",
+        }
 
     monkeypatch.setattr(cli.service, "set_model", fake_set_model)
 
     code = cli.main(["model", "set", "grok-4-fast"])
 
-    assert code == cli.EXIT_OK
-    assert json.loads(capsys.readouterr().out)["current_model"] == "grok-4-fast"
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert json.loads(capsys.readouterr().out)["error_type"] == "parameter_error"
 
 
 def test_model_aliases_use_canonical_commands(monkeypatch, capsys):
@@ -547,29 +558,29 @@ def test_model_aliases_use_canonical_commands(monkeypatch, capsys):
         return {"ok": True, "current_model": "grok-4-fast"}
 
     def fake_set_model(model):
-        return {"ok": True, "current_model": model}
+        return {"ok": False, "error_type": "parameter_error", "error": "Use explicit provider model keys."}
 
     monkeypatch.setattr(cli.service, "current_model", fake_current_model)
     monkeypatch.setattr(cli.service, "set_model", fake_set_model)
 
     assert cli.main(["mdl", "cur"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["current_model"] == "grok-4-fast"
-    assert cli.main(["mdl", "s", "grok-4-fast"]) == cli.EXIT_OK
-    assert json.loads(capsys.readouterr().out)["current_model"] == "grok-4-fast"
+    assert cli.main(["mdl", "s", "grok-4-fast"]) == cli.EXIT_PARAMETER_ERROR
+    assert json.loads(capsys.readouterr().out)["error_type"] == "parameter_error"
 
 
 def test_config_set_masks_value(monkeypatch, capsys):
     def fake_config_set(key, value):
-        return {"ok": True, "key": key, "value": "sk-t********cret", "config_file": "C:/tmp/config.json"}
+        return {"ok": True, "key": key, "value": "xai-********cret", "config_file": "C:/tmp/config.json"}
 
     monkeypatch.setattr(cli.service, "config_set", fake_config_set)
 
-    code = cli.main(["config", "set", "SMART_SEARCH_API_KEY", "sk-test-secret"])
+    code = cli.main(["config", "set", "XAI_API_KEY", "xai-test-secret"])
 
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK
-    assert "sk-test-secret" not in out
-    assert json.loads(out)["value"] == "sk-t********cret"
+    assert "xai-test-secret" not in out
+    assert json.loads(out)["value"] == "xai-********cret"
 
 
 def test_config_list_does_not_request_secrets(monkeypatch, capsys):
@@ -577,7 +588,7 @@ def test_config_list_does_not_request_secrets(monkeypatch, capsys):
 
     def fake_config_list(show_secrets=False):
         captured["show_secrets"] = show_secrets
-        return {"ok": True, "values": {"SMART_SEARCH_API_KEY": "sk-t********cret"}}
+        return {"ok": True, "values": {"XAI_API_KEY": "xai-********cret"}}
 
     monkeypatch.setattr(cli.service, "config_list", fake_config_list)
 
@@ -585,7 +596,7 @@ def test_config_list_does_not_request_secrets(monkeypatch, capsys):
 
     assert code == cli.EXIT_OK
     assert captured["show_secrets"] is False
-    assert json.loads(capsys.readouterr().out)["values"]["SMART_SEARCH_API_KEY"].endswith("cret")
+    assert json.loads(capsys.readouterr().out)["values"]["XAI_API_KEY"].endswith("cret")
 
 
 def test_config_aliases_use_canonical_commands(monkeypatch, capsys):
@@ -593,7 +604,7 @@ def test_config_aliases_use_canonical_commands(monkeypatch, capsys):
 
     def fake_config_list(show_secrets=False):
         captured["show_secrets"] = show_secrets
-        return {"ok": True, "values": {"SMART_SEARCH_MODEL": "grok"}}
+        return {"ok": True, "values": {"XAI_MODEL": "grok"}}
 
     def fake_config_set(key, value):
         captured["set"] = (key, value)
@@ -608,16 +619,34 @@ def test_config_aliases_use_canonical_commands(monkeypatch, capsys):
     monkeypatch.setattr(cli.service, "config_unset", fake_config_unset)
 
     assert cli.main(["cfg", "ls"]) == cli.EXIT_OK
-    assert json.loads(capsys.readouterr().out)["values"]["SMART_SEARCH_MODEL"] == "grok"
+    assert json.loads(capsys.readouterr().out)["values"]["XAI_MODEL"] == "grok"
     assert captured["show_secrets"] is False
 
-    assert cli.main(["cfg", "s", "SMART_SEARCH_MODEL", "grok-4-fast"]) == cli.EXIT_OK
+    assert cli.main(["cfg", "s", "XAI_MODEL", "grok-4-fast"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["value"] == "grok-4-fast"
-    assert captured["set"] == ("SMART_SEARCH_MODEL", "grok-4-fast")
+    assert captured["set"] == ("XAI_MODEL", "grok-4-fast")
 
-    assert cli.main(["cfg", "rm", "SMART_SEARCH_MODEL"]) == cli.EXIT_OK
-    assert json.loads(capsys.readouterr().out)["key"] == "SMART_SEARCH_MODEL"
-    assert captured["unset"] == "SMART_SEARCH_MODEL"
+    assert cli.main(["cfg", "rm", "XAI_MODEL"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["key"] == "XAI_MODEL"
+    assert captured["unset"] == "XAI_MODEL"
+
+
+def test_config_set_legacy_main_search_key_returns_parameter_error(monkeypatch, capsys):
+    def fake_config_set(key, value):
+        return {
+            "ok": False,
+            "error_type": "parameter_error",
+            "error": f"Unsupported config key: {key}",
+        }
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+
+    code = cli.main(["config", "set", "SMART_SEARCH_API_KEY", "sk-test-secret"])
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert "Unsupported config key: SMART_SEARCH_API_KEY" in data["error"]
 
 
 def test_setup_non_interactive_saves_values(monkeypatch, capsys):
@@ -633,20 +662,12 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     code = cli.main([
         "setup",
         "--non-interactive",
-        "--api-url",
-        "https://api.example.com/v1",
-        "--api-key",
-        "sk-test-secret",
-        "--api-mode",
-        "chat-completions",
-        "--xai-tools",
-        "web_search",
-        "--model",
-        "test-model",
         "--xai-api-key",
         "xai-test-secret",
         "--xai-model",
         "xai-model",
+        "--xai-tools-explicit",
+        "web_search",
         "--openai-compatible-api-url",
         "https://relay.example.com/v1",
         "--openai-compatible-api-key",
@@ -679,13 +700,9 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
 
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK
-    assert saved["SMART_SEARCH_API_URL"] == "https://api.example.com/v1"
-    assert saved["SMART_SEARCH_API_KEY"] == "sk-test-secret"
-    assert saved["SMART_SEARCH_API_MODE"] == "chat-completions"
-    assert saved["SMART_SEARCH_XAI_TOOLS"] == "web_search"
-    assert saved["SMART_SEARCH_MODEL"] == "test-model"
     assert saved["XAI_API_KEY"] == "xai-test-secret"
     assert saved["XAI_MODEL"] == "xai-model"
+    assert saved["XAI_TOOLS"] == "web_search"
     assert saved["OPENAI_COMPATIBLE_API_URL"] == "https://relay.example.com/v1"
     assert saved["OPENAI_COMPATIBLE_API_KEY"] == "relay-test-secret"
     assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"
@@ -700,8 +717,25 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["TAVILY_API_KEY"] == "th-test-secret"
     assert saved["FIRECRAWL_API_URL"] == "https://firecrawl.example.com/v2"
     assert saved["FIRECRAWL_API_KEY"] == "firecrawl-secret"
-    assert "sk-test-secret" not in out
+    assert "xai-test-secret" not in out
     assert "th-test-secret" not in out
+
+
+def test_setup_non_interactive_rejects_legacy_flags(capsys):
+    for flag, value in [
+        ("--api-url", "https://api.example.com/v1"),
+        ("--api-key", "sk-test-secret"),
+        ("--api-mode", "chat-completions"),
+        ("--model", "test-model"),
+        ("--xai-tools", "web_search"),
+    ]:
+        try:
+            cli.main(["setup", "--non-interactive", flag, value])
+        except SystemExit as exc:
+            assert exc.code == 2
+        else:
+            raise AssertionError(f"{flag} should be rejected by argparse")
+        capsys.readouterr()
 
 
 def test_setup_non_interactive_installs_selected_skills(monkeypatch, tmp_path, capsys):
@@ -1265,9 +1299,8 @@ def test_setup_interactive_does_not_print_current_secret(monkeypatch, capsys):
         lambda show_secrets=False: {
             "ok": True,
             "values": {
-                "SMART_SEARCH_API_URL": "https://api.example.com/v1",
-                "SMART_SEARCH_API_KEY": "sk-test-secret",
-                "SMART_SEARCH_MODEL": "test-model",
+                "XAI_API_KEY": "xai-test-secret",
+                "XAI_MODEL": "test-model",
                 "EXA_API_KEY": "exa-test-secret",
             },
         },
@@ -1281,11 +1314,11 @@ def test_setup_interactive_does_not_print_current_secret(monkeypatch, capsys):
     prompt_text = "\n".join(prompts)
 
     assert code == cli.EXIT_OK
-    assert "sk-test-secret" not in captured.out
-    assert "sk-test-secret" not in captured.err
-    assert "sk-test-secret" not in prompt_text
+    assert "xai-test-secret" not in captured.out
+    assert "xai-test-secret" not in captured.err
+    assert "xai-test-secret" not in prompt_text
     assert "exa-test-secret" not in prompt_text
-    assert "Legacy primary API key optional [configured, press Enter to keep]" in prompt_text
+    assert "xAI API key optional [configured, press Enter to keep]" in prompt_text
 
 
 def test_setup_advanced_mode_keeps_low_level_prompts(monkeypatch, capsys):
@@ -1308,7 +1341,7 @@ def test_setup_advanced_mode_keeps_low_level_prompts(monkeypatch, capsys):
     monkeypatch.setattr(
         cli.service,
         "config_list",
-        lambda show_secrets=False: {"ok": True, "values": {"SMART_SEARCH_API_URL": "https://api.example.com/v1"}},
+        lambda show_secrets=False: {"ok": True, "values": {"XAI_API_URL": "https://api.x.ai/v1"}},
     )
     monkeypatch.setattr(cli.service, "config_set", fake_config_set)
     monkeypatch.setattr("builtins.input", fake_input)
@@ -1318,7 +1351,9 @@ def test_setup_advanced_mode_keeps_low_level_prompts(monkeypatch, capsys):
 
     assert code == cli.EXIT_OK
     captured = capsys.readouterr()
-    assert "Legacy primary API URL optional" in captured.err
+    assert "Legacy primary API URL optional" not in captured.err
+    assert "xAI Responses API URL optional" in captured.err
+    assert "OpenAI-compatible API URL optional" in captured.err
     assert "Zhipu Web Search API URL optional" in captured.err
     assert "Zhipu search service" in captured.err
     assert "Advanced mode" in captured.err

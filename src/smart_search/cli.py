@@ -56,6 +56,13 @@ MODEL_COMMAND_ALIASES = {
     "current": ["cur", "c"],
 }
 
+
+class SmartSearchArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
+
 TAVILY_DEFAULT_API_URL = "https://api.tavily.com"
 FIRECRAWL_DEFAULT_API_URL = "https://api.firecrawl.dev/v2"
 ZHIPU_DEFAULT_API_URL = "https://open.bigmodel.cn/api"
@@ -414,13 +421,6 @@ def _setup_status_from_values(values: dict[str, str]) -> dict[str, Any]:
         main_configured.add("xai-responses")
     if has("OPENAI_COMPATIBLE_API_URL") and has("OPENAI_COMPATIBLE_API_KEY"):
         main_configured.add("openai-compatible")
-    if has("SMART_SEARCH_API_URL") and has("SMART_SEARCH_API_KEY"):
-        mode = (values.get("SMART_SEARCH_API_MODE") or "auto").strip().lower()
-        legacy_url = values.get("SMART_SEARCH_API_URL", "")
-        if mode == "xai-responses" or (mode == "auto" and "api.x.ai" in legacy_url.lower()):
-            main_configured.add("xai-responses")
-        else:
-            main_configured.add("openai-compatible")
 
     status = {
         "main_search": {
@@ -727,14 +727,6 @@ def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: s
             "\n[1/3 Required] main_search primary search\nPurpose: broad search answers and final synthesis.\nRecommended: choose xai for an xAI key, openai for a relay, or both for same-capability fallback.\n",
         )
     )
-    if current.get("SMART_SEARCH_API_URL") and current.get("SMART_SEARCH_API_KEY"):
-        _write_stderr(
-            _t(
-                lang,
-                "提示: 检测到 legacy 主搜索配置仍可用；建议后续迁移到 XAI_* 或 OPENAI_COMPATIBLE_*。\n",
-                "Note: legacy primary search config is available; consider migrating to XAI_* or OPENAI_COMPATIBLE_* later.\n",
-            )
-        )
     selected = _prompt_provider_multi_select(
         _t(
             lang,
@@ -1136,11 +1128,6 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("OPENAI_COMPATIBLE_API_URL", "OpenAI-compatible API URL", True),
         ("OPENAI_COMPATIBLE_API_KEY", "OpenAI-compatible API key", True),
         ("OPENAI_COMPATIBLE_MODEL", "OpenAI-compatible model", True),
-        ("SMART_SEARCH_API_URL", "Legacy primary API URL", True),
-        ("SMART_SEARCH_API_KEY", "Legacy primary API key", True),
-        ("SMART_SEARCH_API_MODE", "Legacy primary API mode (auto/xai-responses/chat-completions)", True),
-        ("SMART_SEARCH_XAI_TOOLS", "Legacy xAI Responses tools (web_search,x_search)", True),
-        ("SMART_SEARCH_MODEL", "Default model", True),
         ("SMART_SEARCH_VALIDATION_LEVEL", "Validation level (fast/balanced/strict)", True),
         ("SMART_SEARCH_FALLBACK_MODE", "Fallback mode (auto/off)", True),
         ("SMART_SEARCH_MINIMUM_PROFILE", "Minimum profile (standard/off)", True),
@@ -1279,11 +1266,6 @@ def _run_setup(args: argparse.Namespace) -> int:
         return _print_result("setup", data, args.format, args.output)
 
     values = {
-        "SMART_SEARCH_API_URL": args.api_url,
-        "SMART_SEARCH_API_KEY": args.api_key,
-        "SMART_SEARCH_API_MODE": args.api_mode,
-        "SMART_SEARCH_XAI_TOOLS": args.xai_tools,
-        "SMART_SEARCH_MODEL": args.model,
         "XAI_API_URL": args.xai_api_url,
         "XAI_API_KEY": args.xai_api_key,
         "XAI_MODEL": args.xai_model,
@@ -1389,9 +1371,12 @@ async def _run_regression_smoke_fallback() -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="smart-search", description="Smart Search CLI for AI-agent web research.")
+    parser = SmartSearchArgumentParser(
+        prog="smart-search",
+        description="Smart Search CLI for AI-agent web research.",
+    )
     parser.add_argument("-v", "--v", "--version", action="version", version=f"%(prog)s {_get_version()}")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=SmartSearchArgumentParser)
 
     search_parser = sub.add_parser(
         "search", aliases=COMMAND_ALIASES["search"], help="Run OpenAI-compatible web search."
@@ -1506,10 +1491,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_format_args(doctor_parser)
 
     model_parser = sub.add_parser(
-        "model", aliases=COMMAND_ALIASES["model"], help="Read or change the default OpenAI-compatible model."
+        "model",
+        aliases=COMMAND_ALIASES["model"],
+        help="Inspect explicit provider models; use config set XAI_MODEL or OPENAI_COMPATIBLE_MODEL to change them.",
     )
     model_parser.set_defaults(command="model")
-    model_sub = model_parser.add_subparsers(dest="model_command", required=True)
+    model_sub = model_parser.add_subparsers(dest="model_command", required=True, parser_class=SmartSearchArgumentParser)
     model_set = model_sub.add_parser("set", aliases=MODEL_COMMAND_ALIASES["set"])
     model_set.set_defaults(model_command="set")
     model_set.add_argument("model")
@@ -1532,11 +1519,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated AI tool targets for smart-search-cli skill installation, e.g. codex,claude,cursor,hermes.",
     )
     setup_parser.add_argument("--skills-root", default="", help="Project root for skill installation; defaults to the current directory.")
-    setup_parser.add_argument("--api-url", default="", help="Save SMART_SEARCH_API_URL.")
-    setup_parser.add_argument("--api-key", default="", help="Save SMART_SEARCH_API_KEY.")
-    setup_parser.add_argument("--api-mode", default="", help="Save SMART_SEARCH_API_MODE.")
-    setup_parser.add_argument("--xai-tools", default="", help="Save SMART_SEARCH_XAI_TOOLS.")
-    setup_parser.add_argument("--model", default="", help="Save SMART_SEARCH_MODEL.")
     setup_parser.add_argument("--xai-api-url", default="", help="Save XAI_API_URL.")
     setup_parser.add_argument("--xai-api-key", default="", help="Save XAI_API_KEY.")
     setup_parser.add_argument("--xai-model", default="", help="Save XAI_MODEL.")
@@ -1562,7 +1544,7 @@ def build_parser() -> argparse.ArgumentParser:
         "config", aliases=COMMAND_ALIASES["config"], help="Read or edit the local Smart Search config file."
     )
     config_parser.set_defaults(command="config")
-    config_sub = config_parser.add_subparsers(dest="config_command", required=True)
+    config_sub = config_parser.add_subparsers(dest="config_command", required=True, parser_class=SmartSearchArgumentParser)
     config_path = config_sub.add_parser("path", aliases=CONFIG_COMMAND_ALIASES["path"])
     config_path.set_defaults(config_command="path")
     _add_format_args(config_path)

@@ -121,7 +121,21 @@ def test_deep_research_cli_contract_documents_plan_and_smoke_matrix():
 
 def test_deep_research_readme_documents_capability_orchestration():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    required_markers = [
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    english_markers = [
+        "Deep Research is not a fixed topic recipe system",
+        "`intent_signals`",
+        "`decomposition`",
+        "`capability_plan`",
+        "`gap_check`",
+        "`usage_boundary`",
+        "smart-search deep",
+        "`exa-similar`",
+        "`context7-library`",
+        "`doctor` is preflight, not a research step",
+        "Unsupported key claims must be fetched or downgraded to unverified candidates",
+    ]
+    chinese_markers = [
         "Deep Research 不是固定题材配方",
         "`intent_signals`",
         "`decomposition`",
@@ -132,13 +146,43 @@ def test_deep_research_readme_documents_capability_orchestration():
         "`exa-similar`",
         "`context7-library`",
         "`doctor` 只是配置预检",
-        "Deep Research is not a fixed topic recipe system",
-        "not required schema enums",
-        "`doctor` is preflight, not a research step",
-        "Unsupported key claims must be fetched or downgraded to unverified candidates",
+        "没有 fetch 的来源标为未验证候选",
     ]
-    for marker in required_markers:
+    for marker in english_markers:
         assert marker in readme
+    for marker in chinese_markers:
+        assert marker in readme_zh
+
+
+def test_readme_language_split_and_provider_links_are_documented():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    package_json = (ROOT / "package.json").read_text(encoding="utf-8")
+
+    assert "[简体中文](README.zh-CN.md) | English" in readme
+    assert "简体中文 | [English](README.md)" in readme_zh
+    assert "## 中文" not in readme
+    assert "## English" not in readme
+    assert "README.zh-CN.md" in package_json
+
+    provider_markers = [
+        "https://docs.x.ai/docs",
+        "https://console.x.ai/team/default/api-keys",
+        "https://platform.openai.com/docs",
+        "https://platform.openai.com/api-keys",
+        "https://docs.exa.ai/",
+        "https://dashboard.exa.ai/api-keys",
+        "https://context7.com/docs",
+        "https://docs.bigmodel.cn/cn/guide/tools/web-search",
+        "https://open.bigmodel.cn/usercenter/apikeys",
+        "https://docs.tavily.com/",
+        "https://app.tavily.com/home",
+        "https://docs.firecrawl.dev/",
+        "https://www.firecrawl.dev/app/api-keys",
+    ]
+    for marker in provider_markers:
+        assert marker in readme
+        assert marker in readme_zh
 
 
 def test_deep_research_shared_skill_files_are_synchronized():
@@ -154,6 +198,7 @@ def test_deep_research_shared_skill_files_are_synchronized():
 
 def test_zhipu_setup_contract_public_and_packaged_assets_match():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
     public_contract = (PUBLIC_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
@@ -177,6 +222,23 @@ def test_zhipu_setup_contract_public_and_packaged_assets_match():
         assert marker in readme
         assert marker in public_text
         assert marker in packaged_text
+    zh_required_markers = [
+        "--zhipu-api-url",
+        "--zhipu-search-engine",
+        "ZHIPU_API_URL",
+        "ZHIPU_SEARCH_ENGINE",
+        "search_std",
+        "search_pro",
+        "search_pro_sogou",
+        "search_pro_quark",
+        "Web Search API",
+        "TAVILY_API_URL",
+        "不会代理智谱",
+        "不是 Chat Completions",
+        "不是 MCP Server",
+    ]
+    for marker in zh_required_markers:
+        assert marker in readme_zh
     for marker in ["--zhipu-api-url", "--zhipu-search-engine"]:
         assert marker in public_contract
         assert marker in packaged_contract

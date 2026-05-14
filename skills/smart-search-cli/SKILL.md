@@ -20,7 +20,7 @@ Use the local `smart-search` command as the default execution layer for web rese
 9. Use `smart-search exa-similar` when the user gives a representative URL and wants related pages or neighboring sources.
 10. Use `smart-search fetch` when the user gives a URL or a claim depends on page content.
 11. Use `smart-search map` when a documentation site or domain structure matters.
-12. Use `smart-search model current` or `model set` only for explicit model checks or changes.
+12. Use `smart-search model current` only to inspect explicit provider models. To change models, use `smart-search config set XAI_MODEL ...` or `smart-search config set OPENAI_COMPATIBLE_MODEL ...`.
 13. For current-news, policy, finance, health, or other high-risk facts, do not answer from broad `search.content` alone. Find reliable URLs with `exa-search`, `zhipu-search`, or source-focused `search`, then `fetch` key pages and summarize only what the fetched text supports.
 14. Preserve command lines and source URLs in your answer. Prefer citing fetched pages or `primary_sources`; treat `extra_sources` as follow-up candidates, not verified evidence for generated claims.
 
@@ -131,8 +131,9 @@ smart-search deep "https://example.com/source" --format json
 ## Provider Routing
 
 - `search` builds `main_search` from configured peer providers: `XAI_API_KEY` for xAI Responses and `OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY` for OpenAI-compatible Chat Completions.
-- Legacy `SMART_SEARCH_API_URL` / `SMART_SEARCH_API_KEY` still work: `https://api.x.ai/v1` resolves to xAI Responses, other URLs resolve to OpenAI-compatible Chat Completions.
-- xAI Responses mode may use only `XAI_TOOLS=web_search,x_search` or `SMART_SEARCH_XAI_TOOLS=web_search,x_search` and a subset of those tools.
+- Official xAI uses the Responses API `/responses` route through `XAI_*`. Compatible relays/gateways use Chat Completions `/chat/completions` through `OPENAI_COMPATIBLE_*`.
+- Legacy `SMART_SEARCH_API_URL`, `SMART_SEARCH_API_KEY`, `SMART_SEARCH_API_MODE`, `SMART_SEARCH_MODEL`, and `SMART_SEARCH_XAI_TOOLS` are unsupported config keys.
+- xAI Responses mode may use only `XAI_TOOLS=web_search,x_search` and a subset of those tools.
 - Chat Completions mode must not send xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
 - The standard minimum profile requires one configured provider in each of `main_search`, `docs_search`, and fetch capability. Missing required capabilities should be treated as a hard configuration failure.
 - `search` exposes `--validation fast|balanced|strict`, `--fallback auto|off`, and `--providers auto|CSV`. Default validation is `balanced`; fallback only happens within the same capability.
@@ -215,8 +216,12 @@ smart-search setup --non-interactive --tavily-api-url "https://api.tavily.com" -
 smart-search --version
 smart-search config path --format json
 smart-search config list --format json
-smart-search config set SMART_SEARCH_API_MODE "xai-responses" --format json
-smart-search config set SMART_SEARCH_XAI_TOOLS "web_search,x_search" --format json
+smart-search config set XAI_API_KEY "key" --format json
+smart-search config set XAI_MODEL "grok-4-fast" --format json
+smart-search config set XAI_TOOLS "web_search,x_search" --format json
+smart-search config set OPENAI_COMPATIBLE_API_URL "https://api.openai.com/v1" --format json
+smart-search config set OPENAI_COMPATIBLE_API_KEY "key" --format json
+smart-search config set OPENAI_COMPATIBLE_MODEL "model-id" --format json
 smart-search config set EXA_API_KEY "key" --format json
 smart-search config set CONTEXT7_API_KEY "key" --format json
 smart-search config set ZHIPU_API_KEY "key" --format json
@@ -225,7 +230,6 @@ smart-search config set ZHIPU_SEARCH_ENGINE "search_pro" --format json
 smart-search config set TAVILY_API_URL "https://api.tavily.com" --format json
 smart-search config set FIRECRAWL_API_URL "https://api.firecrawl.dev/v2" --format json
 smart-search model current --format json
-smart-search model set "model-id" --format json
 smart-search doctor --format json
 smart-search regression
 smart-search smoke --mock --format json

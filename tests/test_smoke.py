@@ -121,8 +121,8 @@ async def test_fetch_attempts_show_fallback(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_search_docs_intent_uses_docs_fallback(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test-secret")
     monkeypatch.setenv("EXA_API_KEY", "exa-secret")
     monkeypatch.setenv("CONTEXT7_API_KEY", "ctx-secret")
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
@@ -150,8 +150,8 @@ async def test_search_docs_intent_uses_docs_fallback(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_search_zh_current_uses_zhipu_reinforcement(monkeypatch):
-    monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")
-    monkeypatch.setenv("SMART_SEARCH_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test-secret")
     monkeypatch.setenv("EXA_API_KEY", "exa-secret")
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
     monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
