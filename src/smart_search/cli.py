@@ -159,6 +159,306 @@ def _search_timeout_result(query: str, timeout: float) -> dict[str, Any]:
     }
 
 
+def _one_line(value: Any, limit: int = 160) -> str:
+    text = "" if value is None else str(value)
+    text = " ".join(text.replace("\r", " ").replace("\n", " ").split())
+    if limit > 0 and len(text) > limit:
+        return text[: max(0, limit - 3)].rstrip() + "..."
+    return text
+
+
+def _md_cell(value: Any) -> str:
+    return _one_line(value).replace("|", r"\|")
+
+
+def _markdown_table(headers: list[str], rows: list[list[Any]]) -> list[str]:
+    if not rows:
+        return []
+    lines = [
+        "| " + " | ".join(_md_cell(header) for header in headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        cells = list(row)[: len(headers)]
+        cells.extend([""] * (len(headers) - len(cells)))
+        lines.append("| " + " | ".join(_md_cell(cell) for cell in cells) + " |")
+    return lines
+
+
+def _status_label(value: Any) -> str:
+    if isinstance(value, bool):
+        return "OK" if value else "FAIL"
+    status = str(value or "").strip()
+    normalized = status.lower()
+    labels = {
+        "ok": "OK",
+        "true": "OK",
+        "configured": "CONFIGURED",
+        "warning": "WARN",
+        "timeout": "TIMEOUT",
+        "error": "ERROR",
+        "config_error": "CONFIG ERROR",
+        "not_configured": "NOT CONFIGURED",
+        "false": "FAIL",
+        "failed": "FAIL",
+        "empty": "EMPTY",
+        "skipped": "SKIPPED",
+    }
+    return labels.get(normalized, status.upper() if status else "-")
+
+
+def _latency_text(value: Any) -> str:
+    if value in (None, ""):
+        return "-"
+    if isinstance(value, (int, float)):
+        return f"{value:.2f} ms"
+    return str(value)
+
+
+def _configured_text(items: Any) -> str:
+    if isinstance(items, (list, tuple)):
+        return ", ".join(str(item) for item in items) if items else "-"
+    return str(items) if items else "-"
+
+
+def _error_lines(data: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    if data.get("error_type") or data.get("error"):
+        lines.extend(["", "## Errors"])
+        if data.get("error_type"):
+            lines.append(f"- Type: `{data.get('error_type')}`")
+        if data.get("error"):
+            lines.append(f"- Message: {data.get('error')}")
+    parameter_errors = data.get("config_parameter_errors") or []
+    for error in parameter_errors:
+        lines.append(f"- Config: {error}")
+    return lines
+
+
+def _result_title(item: Any, index: int) -> str:
+    if not isinstance(item, dict):
+        return f"Result {index}"
+    return (
+        item.get("title")
+        or item.get("id")
+        or item.get("library_id")
+        or item.get("url")
+        or item.get("provider")
+        or f"Result {index}"
+    )
+
+
+def _result_target(item: Any) -> str:
+    if not isinstance(item, dict):
+        return str(item)
+    return item.get("url") or item.get("id") or item.get("library_id") or ""
+
+
+def _result_summary(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    highlights = item.get("highlights")
+    if isinstance(highlights, list):
+        highlights = " ".join(str(part) for part in highlights[:2])
+    return (
+        item.get("description")
+        or item.get("content")
+        or item.get("snippet")
+        or item.get("text")
+        or highlights
+        or item.get("source")
+        or ""
+    )
+
+
+def _result_rows(results: list[Any]) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    for index, item in enumerate(results, 1):
+        rows.append([index, _result_title(item, index), _result_target(item), _result_summary(item)])
+    return rows
+
+
+def _format_result_markdown(command: str, data: dict[str, Any], title: str) -> str:
+    lines = [
+        f"# {title}",
+        "",
+        f"Status: {_status_label(data.get('ok'))}",
+    ]
+    if data.get("query"):
+        lines.append(f"Query: `{data.get('query')}`")
+    if data.get("url"):
+        lines.append(f"URL: {data.get('url')}")
+    if data.get("base_url"):
+        lines.append(f"Base URL: {data.get('base_url')}")
+    if data.get("provider"):
+        lines.append(f"Provider: {data.get('provider')}")
+    if data.get("elapsed_ms") is not None:
+        lines.append(f"Elapsed: {_latency_text(data.get('elapsed_ms'))}")
+
+    results = data.get("results") or []
+    lines.append("")
+    if results:
+        lines.append("## Results")
+        lines.extend(_markdown_table(["#", "Title", "URL / ID", "Summary"], _result_rows(results)))
+    elif data.get("ok"):
+        lines.append("No results.")
+    lines.extend(_error_lines(data))
+    return "\n".join(lines).strip() + "\n"
+
+
+def _format_doctor_markdown(data: dict[str, Any]) -> str:
+    lines = [
+        "# Smart Search Doctor",
+        "",
+        f"Overall: {_status_label(data.get('ok'))}",
+        f"Config file: `{data.get('config_file', '')}`",
+        f"Config status: {data.get('config_status', '-')}",
+        f"Minimum profile: {_status_label(data.get('minimum_profile_ok'))}",
+    ]
+    missing = data.get("minimum_profile_missing") or []
+    if missing:
+        lines.append(f"Missing: `{', '.join(str(item) for item in missing)}`")
+
+    capability_status = data.get("capability_status") or {}
+    if capability_status:
+        rows = []
+        for capability, status in capability_status.items():
+            if isinstance(status, dict):
+                rows.append(
+                    [
+                        capability,
+                        _status_label(status.get("ok")),
+                        _configured_text(status.get("configured")),
+                        _configured_text(status.get("fallback_chain")),
+                    ]
+                )
+        if rows:
+            lines.extend(["", "## Capabilities"])
+            lines.extend(_markdown_table(["Capability", "Status", "Configured", "Fallback chain"], rows))
+
+    main_tests = data.get("main_search_connection_tests") or {}
+    if main_tests:
+        rows = []
+        for provider, test in main_tests.items():
+            if isinstance(test, dict):
+                rows.append(
+                    [
+                        provider,
+                        _status_label(test.get("status")),
+                        _latency_text(test.get("response_time_ms")),
+                        test.get("message", ""),
+                    ]
+                )
+        lines.extend(["", "## Main Search Providers"])
+        lines.extend(_markdown_table(["Provider", "Status", "Latency", "Message"], rows))
+
+    provider_tests = [
+        ("exa", data.get("exa_connection_test") or {}),
+        ("tavily", data.get("tavily_connection_test") or {}),
+        ("firecrawl", data.get("firecrawl_connection_test") or {}),
+        ("zhipu", data.get("zhipu_connection_test") or {}),
+        ("context7", data.get("context7_connection_test") or {}),
+    ]
+    rows = []
+    for provider, test in provider_tests:
+        if isinstance(test, dict) and test:
+            rows.append(
+                [
+                    provider,
+                    _status_label(test.get("status")),
+                    _latency_text(test.get("response_time_ms")),
+                    test.get("message", ""),
+                ]
+            )
+    if rows:
+        lines.extend(["", "## Provider Checks"])
+        lines.extend(_markdown_table(["Provider", "Status", "Latency", "Message"], rows))
+
+    lines.extend(_error_lines(data))
+    return "\n".join(lines).strip() + "\n"
+
+
+def _format_smoke_markdown(data: dict[str, Any]) -> str:
+    cases = data.get("cases") or []
+    failed = data.get("failed_cases") or []
+    degraded = data.get("degraded_cases") or []
+    lines = [
+        "# Smart Search Smoke",
+        "",
+        f"Mode: `{data.get('mode', '')}`",
+        f"Overall: {_status_label(data.get('ok'))}",
+        f"Cases: {len(cases)} total, {len(failed)} failed, {len(degraded)} degraded",
+    ]
+    if cases:
+        rows = []
+        for case in cases:
+            rows.append(
+                [
+                    case.get("name", ""),
+                    _status_label(case.get("ok")),
+                    case.get("severity", ""),
+                    case.get("error") or case.get("error_type") or case.get("skipped", ""),
+                ]
+            )
+        lines.extend(["", "## Cases"])
+        lines.extend(_markdown_table(["Case", "Status", "Severity", "Details"], rows))
+    lines.extend(_error_lines(data))
+    return "\n".join(lines).strip() + "\n"
+
+
+def _format_config_markdown(data: dict[str, Any]) -> str:
+    lines = ["# Smart Search Config", "", f"Status: {_status_label(data.get('ok'))}"]
+    if data.get("config_file"):
+        lines.append(f"Config file: `{data.get('config_file')}`")
+    if "exists" in data:
+        lines.append(f"Exists: {_status_label(bool(data.get('exists')))}")
+    if data.get("key"):
+        lines.append(f"Key: `{data.get('key')}`")
+    if data.get("value"):
+        lines.append(f"Value: `{data.get('value')}`")
+    values = data.get("values") or {}
+    if values:
+        lines.extend(["", "## Values"])
+        lines.extend(_markdown_table(["Key", "Value"], [[key, value] for key, value in values.items()]))
+    lines.extend(_error_lines(data))
+    return "\n".join(lines).strip() + "\n"
+
+
+def _format_model_markdown(data: dict[str, Any]) -> str:
+    lines = ["# Smart Search Model", "", f"Status: {_status_label(data.get('ok'))}"]
+    rows = []
+    if data.get("xai_model"):
+        rows.append(["xai-responses", data.get("xai_model")])
+    if data.get("openai_compatible_model"):
+        rows.append(["openai-compatible", data.get("openai_compatible_model")])
+    if data.get("current_model"):
+        rows.append(["current", data.get("current_model")])
+    if rows:
+        lines.extend(["", "## Models"])
+        lines.extend(_markdown_table(["Provider", "Model"], rows))
+    if data.get("config_file"):
+        lines.extend(["", f"Config file: `{data.get('config_file')}`"])
+    lines.extend(_error_lines(data))
+    return "\n".join(lines).strip() + "\n"
+
+
+def _format_setup_markdown(data: dict[str, Any]) -> str:
+    lines = ["# Smart Search Setup", "", f"Status: {_status_label(data.get('ok'))}"]
+    if data.get("config_file"):
+        lines.append(f"Config file: `{data.get('config_file')}`")
+    saved = data.get("saved") or data.get("values") or {}
+    if saved:
+        lines.extend(["", "## Saved Values"])
+        lines.extend(_markdown_table(["Key", "Value"], [[key, value] for key, value in saved.items()]))
+    skills = data.get("skills") or {}
+    if isinstance(skills, dict) and skills:
+        installed = skills.get("installed") or []
+        failed = skills.get("failed") or []
+        lines.extend(["", "## Skills", f"Installed: {len(installed)}", f"Failed: {len(failed)}"])
+    lines.extend(_error_lines(data))
+    return "\n".join(lines).strip() + "\n"
+
+
 def _format_markdown(command: str, data: dict[str, Any]) -> str:
     if command == "search":
         lines = [data.get("content", "")]
@@ -192,9 +492,22 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
         return "\n".join(lines).strip() + "\n"
     if command == "fetch":
         return (data.get("content") or "") + ("\n" if data.get("content") else "")
+    if command == "context7-docs":
+        content = data.get("content") or ""
+        lines = [
+            "# Context7 Docs",
+            "",
+            f"Status: {_status_label(data.get('ok'))}",
+            f"Library: `{data.get('library_id', '')}`",
+            f"Query: `{data.get('query', '')}`",
+        ]
+        if content:
+            lines.extend(["", content])
+        lines.extend(_error_lines(data))
+        return "\n".join(lines).strip() + "\n"
     if command == "deep":
         lines = [
-            f"# Deep Research Plan",
+            "# Deep Research Plan",
             "",
             f"**Question:** {data.get('question', '')}",
             f"**Mode:** {data.get('mode', '')}",
@@ -222,25 +535,121 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
         if gap_check:
             lines.extend(["", "## Gap Check", gap_check.get("rule", "")])
         return "\n".join(lines).strip() + "\n"
-    return _json(data)
+    if command == "doctor":
+        return _format_doctor_markdown(data)
+    if command == "smoke":
+        return _format_smoke_markdown(data)
+    if command == "config":
+        return _format_config_markdown(data)
+    if command == "model":
+        return _format_model_markdown(data)
+    if command == "setup":
+        return _format_setup_markdown(data)
+    titles = {
+        "map": "Site Map",
+        "exa-search": "Exa Search",
+        "exa-similar": "Exa Similar Pages",
+        "zhipu-search": "Zhipu Search",
+        "context7-library": "Context7 Library Search",
+    }
+    if command in titles:
+        return _format_result_markdown(command, data, titles[command])
+    return _format_config_markdown(data)
 
 
-def _format_content(data: dict[str, Any]) -> str:
-    if data.get("mode") == "deep_research":
+def _plain_result_lines(data: dict[str, Any]) -> list[str]:
+    results = data.get("results") or []
+    if not results:
+        return ["No results."] if data.get("ok") else []
+    lines = []
+    for index, item in enumerate(results, 1):
+        title = _result_title(item, index)
+        target = _result_target(item)
+        summary = _one_line(_result_summary(item), 120)
+        line = f"{index}. {title}"
+        if target:
+            line += f" - {target}"
+        if summary:
+            line += f" - {summary}"
+        lines.append(line)
+    return lines
+
+
+def _format_content(command: str, data: dict[str, Any]) -> str:
+    if command in {"search", "fetch", "context7-docs"}:
+        content = data.get("content")
+        if content is None:
+            content = ""
+        return str(content) + ("\n" if content else "")
+    if command == "deep" or data.get("mode") == "deep_research":
         lines = [
             f"Deep Research plan for: {data.get('question', '')}",
             "This command only plans; execute the listed CLI steps to perform live research.",
         ]
         return "\n".join(lines) + "\n"
-    content = data.get("content")
-    if content is None:
-        content = ""
-    return str(content) + ("\n" if content else "")
+    if command == "doctor":
+        configured = data.get("capability_status", {})
+        capability_bits = []
+        for name, status in configured.items():
+            if isinstance(status, dict):
+                capability_bits.append(f"{name}={_status_label(status.get('ok'))}")
+        lines = [
+            f"Doctor {_status_label(data.get('ok'))}: {data.get('config_status', '')}".strip(),
+            f"Minimum profile: {_status_label(data.get('minimum_profile_ok'))}",
+        ]
+        if capability_bits:
+            lines.append("Capabilities: " + ", ".join(capability_bits))
+        if data.get("error"):
+            lines.append(f"Error: {data.get('error')}")
+        return "\n".join(lines).strip() + "\n"
+    if command == "smoke":
+        cases = data.get("cases") or []
+        failed = data.get("failed_cases") or []
+        degraded = data.get("degraded_cases") or []
+        return f"Smoke {data.get('mode', '')} {_status_label(data.get('ok'))}: {len(cases)} cases, {len(failed)} failed, {len(degraded)} degraded\n"
+    if command == "config":
+        parts = [f"Config {_status_label(data.get('ok'))}"]
+        if data.get("config_file"):
+            parts.append(f"file={data.get('config_file')}")
+        if data.get("key"):
+            parts.append(f"key={data.get('key')}")
+        if data.get("value"):
+            parts.append(f"value={data.get('value')}")
+        values = data.get("values") or {}
+        if values:
+            parts.append(f"values={len(values)}")
+        if data.get("error"):
+            parts.append(f"error={data.get('error')}")
+        return "; ".join(parts) + "\n"
+    if command == "model":
+        if data.get("error"):
+            return f"Model {_status_label(data.get('ok'))}: {data.get('error')}\n"
+        rows = []
+        if data.get("xai_model"):
+            rows.append(f"xai-responses={data.get('xai_model')}")
+        if data.get("openai_compatible_model"):
+            rows.append(f"openai-compatible={data.get('openai_compatible_model')}")
+        if data.get("current_model"):
+            rows.append(f"current={data.get('current_model')}")
+        return ("Models: " + ", ".join(rows) if rows else f"Model {_status_label(data.get('ok'))}") + "\n"
+    if command == "setup":
+        if data.get("error"):
+            return f"Setup {_status_label(data.get('ok'))}: {data.get('error')}\n"
+        saved = data.get("saved") or data.get("values") or {}
+        return f"Setup {_status_label(data.get('ok'))}: {len(saved)} values saved\n"
+    if command in {"map", "exa-search", "exa-similar", "zhipu-search", "context7-library"}:
+        lines = _plain_result_lines(data)
+        if data.get("error"):
+            lines.append(f"Error: {data.get('error')}")
+        return "\n".join(lines).strip() + "\n"
+    if data.get("error"):
+        return f"{_status_label(data.get('ok'))}: {data.get('error')}\n"
+    return f"{command}: {_status_label(data.get('ok'))}\n"
 
 
 def _render(command: str, data: dict[str, Any], fmt: str) -> str:
     if fmt == "content":
-        return _format_content(data)
+        return _format_content(command, data)
     if fmt == "markdown":
         return _format_markdown(command, data)
     return _json(data)

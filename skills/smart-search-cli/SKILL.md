@@ -184,6 +184,7 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - If keys are changed with `smart-search config set`, rerun the CLI; no Codex restart is needed.
 - If PATH is changed, a new terminal or Codex restart may be needed.
 - In sandboxed runtimes (Codex CLI, containers, CI) where the user's home directory may not be writable from spawned subprocesses, set `SMART_SEARCH_CONFIG_DIR` to an absolute path the runtime can write to. The CLI uses it for both config and logs and skips home-directory fallback.
+- Use `smart-search doctor --format json` for agent/script parsing and `smart-search doctor --format markdown` when a human wants a quick health report.
 - If `smart-search doctor --format json` returns `ok: false`, follow the `error` field's guidance (`smart-search setup` or `smart-search config set KEY VALUE`); do not silently fall back to native web search.
 - Interactive `smart-search setup` is a language-selecting grouped wizard with arrow-key / Space / Enter provider selection. It guides users through required `main_search`, `docs_search`, and fetch capability, then optional `web_search` reinforcement.
 - The setup wizard prints beginner filling examples for official-service and relay/pooled-endpoint minimum profiles. Keep that guidance on stderr so stdout remains parseable JSON/Markdown/content output.
@@ -216,6 +217,7 @@ smart-search setup --non-interactive --tavily-api-url "https://api.tavily.com" -
 smart-search --version
 smart-search config path --format json
 smart-search config list --format json
+smart-search config list --format markdown
 smart-search config set XAI_API_KEY "key" --format json
 smart-search config set XAI_MODEL "grok-4-fast" --format json
 smart-search config set XAI_TOOLS "web_search,x_search" --format json
@@ -231,8 +233,10 @@ smart-search config set TAVILY_API_URL "https://api.tavily.com" --format json
 smart-search config set FIRECRAWL_API_URL "https://api.firecrawl.dev/v2" --format json
 smart-search model current --format json
 smart-search doctor --format json
+smart-search doctor --format markdown
 smart-search regression
 smart-search smoke --mock --format json
+smart-search smoke --mock --format markdown
 ```
 
 Short aliases are supported for interactive use:
@@ -247,6 +251,7 @@ smart-search z "today China AI news" --format json
 smart-search c7 "react" "hooks" --format json
 smart-search c7docs "/facebook/react" "useEffect cleanup" --format json
 smart-search cfg ls --format json
+smart-search d --format markdown
 smart-search mdl cur --format json
 smart-search sm --format json
 smart-search reg

@@ -252,28 +252,34 @@ smart-search zhipu-search "today China AI news" --search-engine search_pro_sogou
 smart-search exa-similar "https://example.com/source" --num-results 5 --format json
 smart-search fetch "https://example.com/source" --format markdown --output page.md
 smart-search map "https://docs.example.com" --instructions "Find API reference pages" --max-depth 1 --limit 50 --format json
+smart-search doctor --format markdown
 smart-search smoke --mock --format json
 smart-search regression
 ```
 
 ## Output And Evidence Policy
 
-Use JSON for agent parsing:
+Use JSON for agents and scripts:
 
 ```powershell
 smart-search search "query" --format json
+smart-search doctor --format json
 ```
 
-Use `content` for direct human reading:
+Use Markdown for human-readable reports, source lists, and fetched page text:
+
+```powershell
+smart-search doctor --format markdown
+smart-search smoke --mock --format markdown
+smart-search exa-search "OpenAI Responses API documentation" --format markdown
+smart-search fetch "https://example.com" --format markdown
+```
+
+Use `content` for compact terminal reading:
 
 ```powershell
 smart-search search "nba report" --format content
-```
-
-Use Markdown for fetched page text:
-
-```powershell
-smart-search fetch "https://example.com" --format markdown
+smart-search doctor --format content
 ```
 
 Save multi-source evidence under a stable folder:
@@ -297,7 +303,7 @@ If `doctor` reports `config_error`:
 ```powershell
 smart-search setup
 smart-search config list --format json
-smart-search doctor --format json
+smart-search doctor --format markdown
 ```
 
 If search is slow:

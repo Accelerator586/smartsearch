@@ -17,11 +17,17 @@ def test_smart_search_skill_contract_enforces_cli_first():
     skill_dir = Path.home() / ".codex" / "skills" / "smart-search-cli"
     if not skill_dir.exists():
         return
+    skill_files = [
+        p
+        for p in skill_dir.rglob("*")
+        if p.is_file() and p.suffix in {".md", ".yaml", ".yml"}
+    ]
+    if not skill_files:
+        return
 
     text = "\n".join(
         p.read_text(encoding="utf-8")
-        for p in skill_dir.rglob("*")
-        if p.is_file() and p.suffix in {".md", ".yaml", ".yml"}
+        for p in skill_files
     )
 
     forbidden_text = [

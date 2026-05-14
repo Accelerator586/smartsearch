@@ -225,6 +225,69 @@ def test_context7_docs_content_format_outputs_content(monkeypatch, capsys):
     assert capsys.readouterr().out == "中文文档内容\n"
 
 
+def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
+    async def fake_doctor():
+        return {
+            "ok": True,
+            "config_file": "C:/tmp/config.json",
+            "config_status": "ok: complete",
+            "minimum_profile_ok": True,
+            "minimum_profile_missing": [],
+            "capability_status": {
+                "main_search": {"ok": True, "configured": ["openai-compatible"], "fallback_chain": ["xai-responses", "openai-compatible"]},
+                "docs_search": {"ok": True, "configured": ["exa"], "fallback_chain": ["exa", "context7"]},
+                "web_fetch": {"ok": True, "configured": ["tavily"], "fallback_chain": ["tavily", "firecrawl"]},
+            },
+            "main_search_connection_tests": {
+                "openai-compatible": {"status": "ok", "message": "chat ok", "response_time_ms": 123.45}
+            },
+            "exa_connection_test": {"status": "ok", "message": "Exa ok", "response_time_ms": 11.1},
+            "tavily_connection_test": {"status": "ok", "message": "Tavily ok", "response_time_ms": 22.2},
+            "firecrawl_connection_test": {"status": "configured", "message": "key configured"},
+            "zhipu_connection_test": {"status": "warning", "message": "HTTP 429"},
+            "context7_connection_test": {"status": "not_configured", "message": "missing"},
+        }
+
+    monkeypatch.setattr(cli.service, "doctor", fake_doctor)
+
+    code = cli.main(["doctor", "--format", "markdown"])
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert not out.lstrip().startswith("{")
+    assert "# Smart Search Doctor" in out
+    assert "Overall: OK" in out
+    assert "## Capabilities" in out
+    assert "## Main Search Providers" in out
+    assert "openai-compatible" in out
+    assert "Tavily ok" in out
+
+
+def test_doctor_content_outputs_non_empty_summary(monkeypatch, capsys):
+    async def fake_doctor():
+        return {
+            "ok": False,
+            "config_status": "missing config",
+            "minimum_profile_ok": False,
+            "capability_status": {
+                "main_search": {"ok": False, "configured": [], "fallback_chain": ["xai-responses", "openai-compatible"]}
+            },
+            "error": "Missing required capability: main_search",
+            "error_type": "config_error",
+        }
+
+    monkeypatch.setattr(cli.service, "doctor", fake_doctor)
+
+    code = cli.main(["doctor", "--format", "content"])
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_CONFIG_ERROR
+    assert out.strip()
+    assert "Doctor FAIL" in out
+    assert "Minimum profile: FAIL" in out
+    assert "Missing required capability" in out
+
+
 def test_search_alias_uses_canonical_command(monkeypatch, capsys):
     captured = {}
 
@@ -647,6 +710,289 @@ def test_config_set_legacy_main_search_key_returns_parameter_error(monkeypatch, 
     assert code == cli.EXIT_PARAMETER_ERROR
     assert data["error_type"] == "parameter_error"
     assert "Unsupported config key: SMART_SEARCH_API_KEY" in data["error"]
+
+
+def test_smoke_markdown_and_content_are_human_readable(monkeypatch, capsys):
+    async def fake_smoke(mode="mock"):
+        return {
+            "ok": True,
+            "mode": mode,
+            "failed_cases": [],
+            "degraded_cases": ["zhipu search"],
+            "cases": [
+                {"name": "doctor minimum profile", "ok": True},
+                {"name": "zhipu search", "ok": False, "severity": "degraded", "error": "HTTP 429"},
+            ],
+        }
+
+    monkeypatch.setattr(cli.service, "smoke", fake_smoke)
+
+    markdown_code = cli.main(["smoke", "--mock", "--format", "markdown"])
+    markdown_out = capsys.readouterr().out
+    content_code = cli.main(["smoke", "--mock", "--format", "content"])
+    content_out = capsys.readouterr().out
+
+    assert markdown_code == cli.EXIT_OK
+    assert "# Smart Search Smoke" in markdown_out
+    assert "zhipu search" in markdown_out
+    assert not markdown_out.lstrip().startswith("{")
+    assert content_code == cli.EXIT_OK
+    assert "Smoke mock OK" in content_out
+    assert "2 cases" in content_out
+
+
+def test_config_markdown_and_content_are_masked_and_non_json(monkeypatch, capsys):
+    def fake_config_path():
+        return {"ok": True, "config_file": "C:/tmp/config.json", "exists": True}
+
+    def fake_config_list(show_secrets=False):
+        return {"ok": True, "config_file": "C:/tmp/config.json", "values": {"XAI_API_KEY": "xai-********cret", "XAI_MODEL": "grok"}}
+
+    def fake_config_set(key, value):
+        return {"ok": True, "config_file": "C:/tmp/config.json", "key": key, "value": "xai-********cret"}
+
+    def fake_config_unset(key):
+        return {"ok": True, "config_file": "C:/tmp/config.json", "key": key}
+
+    monkeypatch.setattr(cli.service, "config_path", fake_config_path)
+    monkeypatch.setattr(cli.service, "config_list", fake_config_list)
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_unset", fake_config_unset)
+
+    assert cli.main(["config", "path", "--format", "markdown"]) == cli.EXIT_OK
+    path_out = capsys.readouterr().out
+    assert "# Smart Search Config" in path_out
+    assert "C:/tmp/config.json" in path_out
+
+    assert cli.main(["config", "list", "--format", "markdown"]) == cli.EXIT_OK
+    list_out = capsys.readouterr().out
+    assert "xai-test-secret" not in list_out
+    assert "xai-********cret" in list_out
+    assert not list_out.lstrip().startswith("{")
+
+    assert cli.main(["config", "set", "XAI_API_KEY", "xai-test-secret", "--format", "markdown"]) == cli.EXIT_OK
+    set_out = capsys.readouterr().out
+    assert "xai-test-secret" not in set_out
+    assert "XAI_API_KEY" in set_out
+
+    assert cli.main(["config", "unset", "XAI_API_KEY", "--format", "content"]) == cli.EXIT_OK
+    unset_out = capsys.readouterr().out
+    assert "Config OK" in unset_out
+    assert "key=XAI_API_KEY" in unset_out
+
+
+def test_model_markdown_and_content_are_human_readable(monkeypatch, capsys):
+    def fake_current_model():
+        return {
+            "ok": True,
+            "xai_model": "grok-4-fast",
+            "openai_compatible_model": "relay-model",
+            "config_file": "C:/tmp/config.json",
+        }
+
+    def fake_set_model(model):
+        return {"ok": False, "error_type": "parameter_error", "error": "Use explicit provider model keys."}
+
+    monkeypatch.setattr(cli.service, "current_model", fake_current_model)
+    monkeypatch.setattr(cli.service, "set_model", fake_set_model)
+
+    assert cli.main(["model", "current", "--format", "markdown"]) == cli.EXIT_OK
+    markdown_out = capsys.readouterr().out
+    assert "# Smart Search Model" in markdown_out
+    assert "grok-4-fast" in markdown_out
+    assert "relay-model" in markdown_out
+
+    assert cli.main(["model", "set", "grok", "--format", "content"]) == cli.EXIT_PARAMETER_ERROR
+    content_out = capsys.readouterr().out
+    assert "Model FAIL" in content_out
+    assert "Use explicit provider model keys." in content_out
+
+
+def test_provider_markdown_outputs_result_lists(monkeypatch, capsys):
+    async def fake_exa_search(*args, **kwargs):
+        return {"ok": True, "query": "query", "provider": "exa", "results": [{"title": "Example", "url": "https://example.com", "text": "body"}]}
+
+    async def fake_exa_similar(*args, **kwargs):
+        return {"ok": True, "url": "https://source.example.com", "results": [{"title": "Similar", "url": "https://similar.example.com"}]}
+
+    async def fake_zhipu_search(*args, **kwargs):
+        return {"ok": True, "query": "news", "provider": "zhipu", "results": [{"title": "News", "url": "https://news.example.com", "description": "desc"}]}
+
+    async def fake_context7_library(*args, **kwargs):
+        return {"ok": True, "query": "react", "provider": "context7", "results": [{"id": "/facebook/react", "title": "React", "description": "docs"}]}
+
+    async def fake_map_site(*args, **kwargs):
+        return {"ok": True, "url": "https://docs.example.com", "base_url": "https://docs.example.com", "results": ["https://docs.example.com/api"]}
+
+    monkeypatch.setattr(cli.service, "exa_search", fake_exa_search)
+    monkeypatch.setattr(cli.service, "exa_find_similar", fake_exa_similar)
+    monkeypatch.setattr(cli.service, "zhipu_search", fake_zhipu_search)
+    monkeypatch.setattr(cli.service, "context7_library", fake_context7_library)
+    monkeypatch.setattr(cli.service, "map_site", fake_map_site)
+
+    cases = [
+        (["exa-search", "query", "--format", "markdown"], "Example", "https://example.com"),
+        (["exa-similar", "https://source.example.com", "--format", "markdown"], "Similar", "https://similar.example.com"),
+        (["zhipu-search", "news", "--format", "markdown"], "News", "https://news.example.com"),
+        (["context7-library", "react", "--format", "markdown"], "React", "/facebook/react"),
+        (["map", "https://docs.example.com", "--format", "markdown"], "https://docs.example.com/api", "Site Map"),
+    ]
+    for argv, first, second in cases:
+        assert cli.main(argv) == cli.EXIT_OK
+        out = capsys.readouterr().out
+        assert not out.lstrip().startswith("{")
+        assert first in out
+        assert second in out
+
+
+def test_provider_content_outputs_plain_result_list(monkeypatch, capsys):
+    async def fake_exa_search(*args, **kwargs):
+        return {"ok": True, "query": "query", "results": [{"title": "Example", "url": "https://example.com", "text": "body"}]}
+
+    monkeypatch.setattr(cli.service, "exa_search", fake_exa_search)
+
+    code = cli.main(["exa-search", "query", "--format", "content"])
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert out.startswith("1. Example - https://example.com")
+    assert not out.lstrip().startswith("{")
+
+
+def test_provider_markdown_empty_results_are_clear(monkeypatch, capsys):
+    async def fake_exa_search(*args, **kwargs):
+        return {"ok": True, "query": "query", "results": []}
+
+    monkeypatch.setattr(cli.service, "exa_search", fake_exa_search)
+
+    code = cli.main(["exa-search", "query", "--format", "markdown"])
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert "No results." in out
+
+
+def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
+    async def fake_search(*args, **kwargs):
+        return {"ok": True, "content": "Answer", "sources": []}
+
+    async def fake_fetch(*args, **kwargs):
+        return {"ok": True, "content": "Page"}
+
+    async def fake_map(*args, **kwargs):
+        return {"ok": True, "results": ["https://example.com/api"]}
+
+    async def fake_exa(*args, **kwargs):
+        return {"ok": True, "results": [{"title": "Example", "url": "https://example.com"}]}
+
+    async def fake_zhipu(*args, **kwargs):
+        return {"ok": True, "results": [{"title": "News", "url": "https://news.example.com"}]}
+
+    async def fake_c7_library(*args, **kwargs):
+        return {"ok": True, "results": [{"id": "/lib", "title": "Library"}]}
+
+    async def fake_c7_docs(*args, **kwargs):
+        return {"ok": True, "library_id": "/lib", "query": "hooks", "content": "Docs"}
+
+    async def fake_doctor():
+        return {"ok": True, "config_status": "ok", "minimum_profile_ok": True}
+
+    async def fake_smoke(mode="mock"):
+        return {"ok": True, "mode": mode, "failed_cases": [], "cases": [{"name": "case", "ok": True}]}
+
+    def fake_plan(*args, **kwargs):
+        return {"ok": True, "mode": "deep_research", "question": "q", "difficulty": "standard", "evidence_policy": "fetch_before_claim"}
+
+    def fake_config_path():
+        return {"ok": True, "config_file": "C:/tmp/config.json"}
+
+    def fake_config_list(show_secrets=False):
+        return {"ok": True, "values": {"XAI_MODEL": "grok"}}
+
+    def fake_config_set(key, value):
+        return {"ok": True, "key": key, "value": "***"}
+
+    def fake_config_unset(key):
+        return {"ok": True, "key": key}
+
+    def fake_current_model():
+        return {"ok": True, "xai_model": "grok"}
+
+    def fake_set_model(model):
+        return {"ok": False, "error_type": "parameter_error", "error": "Use explicit provider model keys."}
+
+    monkeypatch.setattr(cli.service, "search", fake_search)
+    monkeypatch.setattr(cli.service, "fetch", fake_fetch)
+    monkeypatch.setattr(cli.service, "map_site", fake_map)
+    monkeypatch.setattr(cli.service, "exa_search", fake_exa)
+    monkeypatch.setattr(cli.service, "exa_find_similar", fake_exa)
+    monkeypatch.setattr(cli.service, "zhipu_search", fake_zhipu)
+    monkeypatch.setattr(cli.service, "context7_library", fake_c7_library)
+    monkeypatch.setattr(cli.service, "context7_docs", fake_c7_docs)
+    monkeypatch.setattr(cli.service, "doctor", fake_doctor)
+    monkeypatch.setattr(cli.service, "smoke", fake_smoke)
+    monkeypatch.setattr(cli.service, "build_deep_research_plan", fake_plan)
+    monkeypatch.setattr(cli.service, "config_path", fake_config_path)
+    monkeypatch.setattr(cli.service, "config_list", fake_config_list)
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_unset", fake_config_unset)
+    monkeypatch.setattr(cli.service, "current_model", fake_current_model)
+    monkeypatch.setattr(cli.service, "set_model", fake_set_model)
+
+    command_cases = [
+        ("search", ["search", "query", "--format", "markdown"]),
+        ("fetch", ["fetch", "https://example.com", "--format", "markdown"]),
+        ("map", ["map", "https://example.com", "--format", "markdown"]),
+        ("exa-search", ["exa-search", "query", "--format", "markdown"]),
+        ("exa-similar", ["exa-similar", "https://example.com", "--format", "markdown"]),
+        ("zhipu-search", ["zhipu-search", "query", "--format", "markdown"]),
+        ("context7-library", ["context7-library", "react", "--format", "markdown"]),
+        ("context7-docs", ["context7-docs", "/lib", "hooks", "--format", "markdown"]),
+        ("deep", ["deep", "query", "--format", "markdown"]),
+        ("smoke", ["smoke", "--format", "markdown"]),
+        ("doctor", ["doctor", "--format", "markdown"]),
+        ("config-path", ["config", "path", "--format", "markdown"]),
+        ("config-list", ["config", "list", "--format", "markdown"]),
+        ("config-set", ["config", "set", "XAI_MODEL", "grok", "--format", "markdown"]),
+        ("config-unset", ["config", "unset", "XAI_MODEL", "--format", "markdown"]),
+        ("model-current", ["model", "current", "--format", "markdown"]),
+        ("model-set", ["model", "set", "grok", "--format", "markdown"]),
+    ]
+
+    for name, argv in command_cases:
+        command = cli.build_parser().parse_args(argv).command
+        data = {
+            "search": {"ok": True, "content": "Answer", "sources": []},
+            "fetch": {"ok": True, "content": "Page"},
+            "map": {"ok": True, "results": ["https://example.com/api"]},
+            "exa-search": {"ok": True, "results": [{"title": "Example", "url": "https://example.com"}]},
+            "exa-similar": {"ok": True, "results": [{"title": "Example", "url": "https://example.com"}]},
+            "zhipu-search": {"ok": True, "results": [{"title": "News", "url": "https://news.example.com"}]},
+            "context7-library": {"ok": True, "results": [{"id": "/lib", "title": "Library"}]},
+            "context7-docs": {"ok": True, "library_id": "/lib", "query": "hooks", "content": "Docs"},
+            "deep": {"ok": True, "mode": "deep_research", "question": "q", "difficulty": "standard", "evidence_policy": "fetch_before_claim"},
+            "smoke": {"ok": True, "mode": "mock", "failed_cases": [], "cases": [{"name": "case", "ok": True}]},
+            "doctor": {"ok": True, "config_status": "ok", "minimum_profile_ok": True},
+            "config": {"ok": True, "config_file": "C:/tmp/config.json", "values": {"XAI_MODEL": "grok"}},
+            "model": {"ok": True, "xai_model": "grok"},
+        }[command]
+        rendered = cli._render(command, data, "markdown")
+        assert rendered.strip(), name
+        assert not rendered.lstrip().startswith("{"), name
+
+
+def test_non_content_commands_have_non_empty_content_fallback():
+    cases = {
+        "doctor": {"ok": True, "config_status": "ok", "minimum_profile_ok": True},
+        "smoke": {"ok": True, "mode": "mock", "cases": [], "failed_cases": []},
+        "config": {"ok": True, "config_file": "C:/tmp/config.json"},
+        "model": {"ok": True, "xai_model": "grok"},
+        "exa-search": {"ok": True, "results": [{"title": "Example", "url": "https://example.com"}]},
+    }
+    for command, data in cases.items():
+        rendered = cli._render(command, data, "content")
+        assert rendered.strip(), command
+        assert not rendered.lstrip().startswith("{"), command
 
 
 def test_setup_non_interactive_saves_values(monkeypatch, capsys):

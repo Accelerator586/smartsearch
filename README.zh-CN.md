@@ -292,28 +292,34 @@ smart-search zhipu-search "今天国内 AI 新闻" --search-engine search_pro_so
 smart-search exa-similar "https://example.com/source" --num-results 5 --format json
 smart-search fetch "https://example.com/source" --format markdown --output page.md
 smart-search map "https://docs.example.com" --instructions "Find API reference pages" --max-depth 1 --limit 50 --format json
+smart-search doctor --format markdown
 smart-search smoke --mock --format json
 smart-search regression
 ```
 
 ## 输出和证据策略
 
-AI 解析优先用 JSON：
+AI 和脚本解析优先用 JSON：
 
 ```powershell
 smart-search search "query" --format json
+smart-search doctor --format json
 ```
 
-终端直读回答正文用 content：
+给人看连接状态、冒烟结果、来源列表、网页正文时用 Markdown：
+
+```powershell
+smart-search doctor --format markdown
+smart-search smoke --mock --format markdown
+smart-search exa-search "OpenAI Responses API documentation" --format markdown
+smart-search fetch "https://example.com" --format markdown
+```
+
+终端快速扫正文或摘要用 content：
 
 ```powershell
 smart-search search "nba战报" --format content
-```
-
-网页正文阅读用 Markdown：
-
-```powershell
-smart-search fetch "https://example.com" --format markdown
+smart-search doctor --format content
 ```
 
 多来源研究建议保存证据文件：
@@ -337,7 +343,7 @@ smart-search fetch "https://example.com/source" --format markdown --output C:\tm
 ```powershell
 smart-search setup
 smart-search config list --format json
-smart-search doctor --format json
+smart-search doctor --format markdown
 ```
 
 如果搜索慢：

@@ -69,11 +69,15 @@ Nested aliases:
 | `model current` | `mdl cur`, `mdl c` |
 | `model set` | `mdl s` |
 
-## JSON Expectations
+## Output Format Expectations
 
 Successful search output includes `ok`, `query`, `primary_api_mode`, `content`, `sources`, `sources_count`, `primary_sources`, `primary_sources_count`, `extra_sources`, `extra_sources_count`, `source_warning`, `routing_decision`, `providers_used`, `provider_attempts`, `fallback_used`, `validation_level`, and `elapsed_ms`. Each source should include at least `url` when available.
 
-`--format content` prints only the `content` field when present. JSON output remains parseable and uses readable non-ASCII text when the terminal encoding supports it.
+`--format json` is the stable machine-readable contract for agents and scripts. JSON output remains parseable and uses readable non-ASCII text when the terminal encoding supports it.
+
+`--format markdown` is the human-readable report format. `doctor --format markdown` must render a compact health report with overall status, minimum profile, capability status, main-search provider checks, and provider connectivity checks instead of falling back to raw JSON. Provider list commands such as `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, and `map` render result lists or a clear no-results message.
+
+`--format content` prints only the `content` field for content-bearing commands such as `search`, `fetch`, and `context7-docs`. Commands without a `content` field, including `doctor`, `smoke`, `config`, and `model`, must print a compact non-empty text summary rather than an empty stdout.
 
 Source provenance fields:
 
