@@ -71,3 +71,39 @@ Reframed the smart-search-cli skill as a capability extension along two independ
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Resync develop onto upstream/main via conservative cherry-pick
+
+**Date**: 2026-05-14
+**Task**: Resync develop onto upstream/main via conservative cherry-pick
+**Branch**: `develop`
+
+### Summary
+
+Full rebase collided with dual-axis contract change (dfa3ddd) on 6 skill/CLI files. Aborted, reset develop to upstream/main, cherry-picked 3 conflict-free Trellis/Cursor workflow commits. Skipped dfa3ddd and its dependent cleanup 5eed123. Force-with-lease pushed. backup/develop-pre-rebase preserved locally; dfa3ddd redo deferred to a new task.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c8d767d` | (see git log) |
+| `526cff9` | (see git log) |
+| `e39f648` | (see git log) |
+| `196abab` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

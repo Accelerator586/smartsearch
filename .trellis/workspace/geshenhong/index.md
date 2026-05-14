@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-05-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~73 | Active |
+| `journal-1.md` | ~109 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-05-14 | Resync develop onto upstream/main via conservative cherry-pick | `c8d767d`, `526cff9`, `e39f648`, `196abab` | `develop` |
 | 2 | 2026-05-14 | Smart Search dual-axis evidence extension contract | `dfa3ddd` | `develop` |
 | 1 | 2026-05-13 | Bootstrap Trellis Guidelines | none | `feat/deep-search-mode` |
 <!-- @@@/auto:session-history -->
