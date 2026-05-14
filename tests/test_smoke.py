@@ -20,7 +20,7 @@ async def test_mock_smoke_passes():
     assert result["ok"] is True
     assert result["failed_cases"] == []
     assert any(case["name"] == "docs_search fallback exa_to_context7" for case in result["cases"])
-    assert any(case["name"] == "deep_research simple current prompt uses capability plan" for case in result["cases"])
+    assert any(case["name"] == "deep_research explicit planner simple current prompt uses capability plan" for case in result["cases"])
 
 
 @pytest.mark.asyncio
@@ -29,7 +29,7 @@ async def test_mock_smoke_covers_deep_research_capability_matrix():
     case_names = {case["name"] for case in result["cases"]}
 
     expected = {
-        "deep_research simple current prompt uses capability plan",
+        "deep_research explicit planner simple current prompt uses capability plan",
         "deep_research docs api prompt uses docs capabilities",
         "deep_research claim verification requires fetch_before_claim",
         "deep_research url prompt is fetch first",
@@ -39,13 +39,15 @@ async def test_mock_smoke_covers_deep_research_capability_matrix():
     }
     assert expected <= case_names
 
-    current_case = next(case for case in result["cases"] if case["name"] == "deep_research simple current prompt uses capability plan")
+    current_case = next(case for case in result["cases"] if case["name"] == "deep_research explicit planner simple current prompt uses capability plan")
     plan = current_case["research_plan"]
     assert plan["question"] == "深度搜索一下最近的比特币行情"
     assert plan["intent_signals"]["recency_requirement"] == "current"
     assert plan["intent_signals"]["claim_risk"] == "high"
+    assert plan["trigger_source"] == "explicit_cli"
+    assert plan["preflight"]["executed_by_deep_command"] is False
     assert plan["evidence_policy"] == "fetch_before_claim"
-    assert {"intent_signals", "capability_plan", "gap_check"} <= set(plan)
+    assert {"intent_signals", "decomposition", "capability_plan", "gap_check", "usage_boundary"} <= set(plan)
 
 
 @pytest.mark.asyncio

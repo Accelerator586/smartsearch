@@ -54,6 +54,7 @@ def test_each_subcommand_help_exits_successfully(capsys):
         ["zhipu-search", "--help"],
         ["context7-library", "--help"],
         ["context7-docs", "--help"],
+        ["deep", "--help"],
         ["smoke", "--help"],
         ["doctor", "--help"],
         ["setup", "--help"],
@@ -96,6 +97,7 @@ def test_command_aliases_parse_to_canonical_commands():
         (["c7d", "/facebook/react", "hooks"], "context7-docs"),
         (["c7docs", "/facebook/react", "hooks"], "context7-docs"),
         (["ctx7-docs", "/facebook/react", "hooks"], "context7-docs"),
+        (["dr", "query"], "deep"),
         (["sm"], "smoke"),
         (["d"], "doctor"),
         (["init", "--non-interactive"], "setup"),
@@ -249,6 +251,93 @@ def test_fetch_alias_uses_canonical_command(monkeypatch, capsys):
 
     assert code == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["url"] == "https://example.com"
+
+
+def test_deep_outputs_offline_plan(monkeypatch, capsys):
+    captured = {}
+
+    def fake_plan(query, budget="standard", evidence_dir=""):
+        captured["query"] = query
+        captured["budget"] = budget
+        captured["evidence_dir"] = evidence_dir
+        return {
+            "ok": True,
+            "mode": "deep_research",
+            "query_mode": "deep",
+            "question": query,
+            "trigger_source": "explicit_cli",
+            "difficulty": "standard",
+            "intent_signals": {},
+            "decomposition": [],
+            "capability_plan": [],
+            "evidence_policy": "fetch_before_claim",
+            "preflight": {"executed_by_deep_command": False},
+            "steps": [],
+            "gap_check": {"required": True},
+            "final_answer_policy": "cite fetched evidence",
+            "usage_boundary": {"deep": "offline planner"},
+        }
+
+    async def should_not_run_provider(*args, **kwargs):
+        raise AssertionError("deep planner must not call providers")
+
+    monkeypatch.setattr(cli.service, "build_deep_research_plan", fake_plan)
+    monkeypatch.setattr(cli.service, "search", should_not_run_provider)
+    monkeypatch.setattr(cli.service, "doctor", should_not_run_provider)
+
+    code = cli.main([
+        "deep",
+        "深度搜索一下最近的比特币行情",
+        "--budget",
+        "deep",
+        "--evidence-dir",
+        "C:/tmp/custom-evidence",
+        "--format",
+        "json",
+    ])
+
+    data = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_OK
+    assert captured == {
+        "query": "深度搜索一下最近的比特币行情",
+        "budget": "deep",
+        "evidence_dir": "C:/tmp/custom-evidence",
+    }
+    assert data["mode"] == "deep_research"
+    assert data["preflight"]["executed_by_deep_command"] is False
+
+
+def test_deep_alias_and_markdown_output(monkeypatch, capsys):
+    def fake_plan(query, budget="standard", evidence_dir=""):
+        return {
+            "ok": True,
+            "mode": "deep_research",
+            "question": query,
+            "difficulty": "standard",
+            "evidence_policy": "fetch_before_claim",
+            "usage_boundary": {"search": "fast", "deep": "planner", "execution": "execute steps"},
+            "decomposition": [{"id": "sq1", "question": "Subquestion"}],
+            "steps": [
+                {
+                    "id": "s1",
+                    "subquestion_id": "sq1",
+                    "tool": "fetch",
+                    "purpose": "fetch evidence",
+                    "command": "smart-search fetch \"https://example.com\" --format markdown",
+                }
+            ],
+            "gap_check": {"rule": "fetch missing evidence"},
+        }
+
+    monkeypatch.setattr(cli.service, "build_deep_research_plan", fake_plan)
+
+    code = cli.main(["dr", "React useEffect 最新文档", "--format", "markdown"])
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert "# Deep Research Plan" in out
+    assert "React useEffect 最新文档" in out
+    assert "smart-search fetch" in out
 
 
 def test_exa_search_passes_powershell_split_domains(monkeypatch, capsys):

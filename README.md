@@ -94,15 +94,31 @@ smart-search
 
 ### Deep Research 深度搜索
 
-`smart-search` 的默认 `search` 仍然是快速搜索入口；Deep Research 是 `smart-search-cli` skill 的可选工作流，不是新的 CLI 命令，也不依赖 MCP session。用户说“帮我深度搜索...”“深度调研...”时，AI 助手会先生成一个 `research_plan`，再像拼积木一样组合现有命令。
+`smart-search search` 是快速搜索入口，会直接联网检索并返回结果。`smart-search deep "问题"` 是 Deep Research 的显式计划入口：它默认不联网、不跑 provider、不抓网页，只输出 AI 可执行的 `research_plan`。用户说“帮我深度搜索...”“深度调研...”时，`smart-search-cli` skill 会优先调用 `smart-search deep ... --format json`，再按计划像拼积木一样组合现有命令执行。
 
 Deep Research 不是固定题材配方。行情、选型、技术文档、新闻政策、真假核验、用户给 URL 这些都只是用户语言示例，不是 schema 里的固定枚举。skill 会先判断 `intent_signals`，例如是否强时效、是否是 docs/API、是否给了 URL、是否需要权威来源、风险高不高、是否要交叉验证，再生成 `capability_plan`。
 
-Deep Research 计划至少包含 `mode`、`question`、`difficulty`、`intent_signals`、`capability_plan`、`evidence_policy`、`steps`、`gap_check`、`final_answer_policy`。`steps[].tool` 只使用现有 CLI 积木：`search`、`exa-search`、`exa-similar`、`zhipu-search`、`context7-library`、`context7-docs`、`fetch`、`map`；每一步都要写明用途、完整命令和输出文件路径。`doctor` 只是配置预检，不算 research step。
+Deep Research 计划至少包含 `mode`、`query_mode`、`question`、`trigger_source`、`difficulty`、`intent_signals`、`decomposition`、`capability_plan`、`evidence_policy`、`preflight`、`steps`、`gap_check`、`final_answer_policy`、`usage_boundary`。复杂问题会先拆成 2-6 个 `decomposition` 子问题，`steps[].subquestion_id` 绑定到对应子问题。`steps[].tool` 只使用现有 CLI 积木：`search`、`exa-search`、`exa-similar`、`zhipu-search`、`context7-library`、`context7-docs`、`fetch`、`map`；每一步都要写明用途、完整命令和输出文件路径。`doctor` 只是配置预检，不算 research step。
 
 能力边界是：`search` 做广泛发现和综合回答，并读取现有 `routing_decision` / `provider_attempts` / `fallback_used` / `source_warning`；`exa-search` 做官方文档、API、论文、产品页、可信网页、已知域名和发布时间过滤等低噪声来源发现；`exa-similar` 从一个可靠 URL 扩展相邻来源；`zhipu-search` 补中文、国内、时效或域名过滤来源；`context7-library` / `context7-docs` 只用于库、框架、SDK、API 文档；`map` 只看站点结构；`fetch` 抓正文，是关键结论的证据入口。
 
 默认链路是：不确定配置时先 `doctor`，用 `search --validation balanced --extra-sources 1..3` 做广泛发现，再按能力补 `exa-search` / `exa-similar` / `zhipu-search` / `context7-*` / `map`，对关键 URL 跑 `fetch` 抓正文，最后做一次 `gap_check`：没有正文证据的关键结论，要继续 fetch 或降级为未验证候选。`primary_sources` 和 `extra_sources` 在 Deep Research 里只是候选来源，不能直接当作每句话的证明。
+
+普通查询和深度搜索的边界很简单：
+
+- 用 `smart-search search "问题"`：你要快速搜索、快速回答、简单查资料。
+- 用 `smart-search deep "问题"`：你要深度调研、真假核验、工具选型、严肃评测、强时效/高风险问题、多来源交叉验证，或者想让 AI 先拆问题再执行多步搜索。
+
+标准测试问题：
+
+```powershell
+smart-search deep "深度搜索一下最近的比特币行情" --format json
+smart-search deep "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选" --budget deep --format json
+smart-search deep "帮我核验这个说法是真是假：某某工具已经完全替代 Tavily 做 AI 搜索了" --format json
+smart-search deep "https://example.com/source" --format json
+```
+
+看到输出里有 `mode=deep_research`、`decomposition`、多步 `steps`、`evidence_policy=fetch_before_claim`、`preflight.executed_by_deep_command=false`，就说明已经进入深搜计划模式。真正联网发生在后续执行 `steps[].command` 时。
 
 ### 安装
 
@@ -587,15 +603,17 @@ Important: `extra_sources` are not automatic fact verification. `sources_count >
 
 ### Deep Research
 
-Default `smart-search search` remains the fast search entrypoint. Deep Research is an optional `smart-search-cli` skill workflow, not a new CLI command and not an MCP-session dependency. When the user asks for "deep search", "deep research", or similar multi-source verification, the AI agent first creates a `research_plan`, then composes existing CLI commands like building blocks.
+Default `smart-search search` remains the fast live-search entrypoint. `smart-search deep "question"` is the explicit Deep Research planning entrypoint: it does not call providers, fetch pages, or run `doctor` by default. It emits an AI-executable `research_plan`. When the user asks for "deep search", "deep research", or similar multi-source verification, the `smart-search-cli` skill should call `smart-search deep ... --format json`, then execute the planned CLI commands like building blocks.
 
 Deep Research is not a fixed topic recipe system. Market research, product comparison, technical docs, news or policy, claim verification, and URL-first prompts are examples of user language, not required schema enums. The skill first infers `intent_signals`, such as recency, docs/API intent, known URL, source authority need, claim risk, cross-validation need, and breadth/depth budget, then creates a `capability_plan`.
 
-The plan includes `mode`, `question`, `difficulty`, `intent_signals`, `capability_plan`, `evidence_policy`, `steps`, `gap_check`, and `final_answer_policy`. `steps[].tool` may only use existing CLI blocks: `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`; each step must include its purpose, full command, and output path. `doctor` is preflight, not a research step.
+The plan includes `mode`, `query_mode`, `question`, `trigger_source`, `difficulty`, `intent_signals`, `decomposition`, `capability_plan`, `evidence_policy`, `preflight`, `steps`, `gap_check`, `final_answer_policy`, and `usage_boundary`. Complex prompts include 2-6 `decomposition` subquestions, and `steps[].subquestion_id` binds each step to a subquestion. `steps[].tool` may only use existing CLI blocks: `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`; each step must include its purpose, full command, and output path. `doctor` is preflight, not a research step.
 
 Capability boundaries: `search` is for broad discovery and synthesis, using existing `routing_decision` / `provider_attempts` / `fallback_used` / `source_warning` as routing evidence; `exa-search` is for low-noise official/API/paper/product/trusted-page discovery; `exa-similar` expands from a known reliable URL; `zhipu-search` reinforces Chinese, domestic, current, or domain-filtered discovery; `context7-library` / `context7-docs` are only for library, framework, SDK, and API docs; `map` explores site structure; `fetch` extracts page text and is required before claim-level conclusions.
 
 The default chain is: run `doctor` when config is uncertain, use `search --validation balanced --extra-sources 1..3` for broad discovery, add `exa-search` / `exa-similar` / `zhipu-search` / `context7-*` / `map` only when their capability matches the intent, fetch key URLs, then run `gap_check`. Unsupported key claims must be fetched or downgraded to unverified candidates. In Deep Research, `primary_sources` and `extra_sources` are candidates until fetched.
+
+Use `smart-search search "question"` for fast lookup. Use `smart-search deep "question"` for deep research, claim verification, product/tool selection, serious review, high-risk current facts, or multi-source cross-checking. Good smoke prompts include `深度搜索一下最近的比特币行情`, `OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选`, claim verification prompts, and URL-first prompts such as `https://example.com/source`.
 
 ### Installation
 

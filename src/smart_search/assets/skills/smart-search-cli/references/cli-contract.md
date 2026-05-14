@@ -21,6 +21,7 @@
 - `smart-search zhipu-search QUERY [--count N] [--search-engine NAME] [--search-recency-filter VALUE] [--search-domain-filter DOMAIN] [--content-size medium|high] [--format json|markdown|content] [--output PATH]`
 - `smart-search context7-library NAME [QUERY] [--format json|markdown|content] [--output PATH]`
 - `smart-search context7-docs LIBRARY_ID QUERY [--format json|markdown|content] [--output PATH]`
+- `smart-search deep QUERY [--budget quick|standard|deep] [--evidence-dir PATH] [--format json|markdown|content] [--output PATH]`
 - `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
 - `smart-search doctor [--format json|markdown|content] [--output PATH]`
 - `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--skip-skills] [--install-skills CSV] [--skills-root PATH] [--api-url URL] [--api-key KEY] [--api-mode auto|xai-responses|chat-completions] [--xai-tools CSV] [--model ID] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--zhipu-api-url URL] [--zhipu-search-engine ENGINE] [--tavily-api-url URL] [--tavily-key KEY] [--firecrawl-api-url URL] [--firecrawl-key KEY] [--format json|markdown|content] [--output PATH]`
@@ -49,6 +50,7 @@ Top-level aliases must normalize to the same service behavior as their full comm
 | `zhipu-search` | `z`, `zp` |
 | `context7-library` | `c7`, `ctx7` |
 | `context7-docs` | `c7d`, `c7docs`, `ctx7-docs` |
+| `deep` | `dr` |
 | `doctor` | `d` |
 | `setup` | `init` |
 | `config` | `cfg` |
@@ -111,29 +113,36 @@ Context7 library output includes `ok`, `query`, `provider`, `results`, `total`, 
 
 Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `elapsed_ms` when successful.
 
+Deep planner output includes `ok`, `mode`, `query_mode`, `question`, `trigger_source`, `difficulty`, `intent_signals`, `decomposition`, `capability_plan`, `evidence_policy`, `preflight`, `steps`, `gap_check`, `final_answer_policy`, `usage_boundary`, `allowed_tools`, `evidence_dir`, and `elapsed_ms`. `smart-search deep` is offline by default: `preflight.executed_by_deep_command=false`, no provider calls are made, and live research only happens when an AI agent or user executes `steps[].command`.
+
 Diagnostic output masks keys, reports `config_file` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main-search provider check. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
 
 Smoke output includes `ok`, `mode`, `failed_cases`, `cases`, `provider_attempts`, and `elapsed_ms`. Live smoke may include `degraded_cases` when a provider fails but a same-capability fallback remains available.
 
 ## Deep Research Skill Contract
 
-Deep Research is an optional skill-layer capability orchestration workflow for prompts such as `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, and selection/comparison research. It is not a new public CLI command and must not change default `smart-search search` behavior. The AI agent infers intent signals, composes existing CLI commands, and lets the CLI perform execution and write JSON/Markdown evidence.
+Deep Research is an optional capability orchestration workflow for prompts such as `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, and selection/comparison research. `smart-search deep` is the public offline planner command for this workflow. It must not change default `smart-search search` behavior and must not execute live providers by default. The AI agent reads the generated plan, composes existing CLI commands, and lets the CLI perform execution and write JSON/Markdown evidence.
 
 Deep Research must not require fixed topic recipe ids such as `current_market_research`, `product_comparison_research`, `technical_docs_research`, `news_or_policy_research`, `claim_verification_research`, or `url_first_research`. Those phrases may appear as prompt examples, but they are not schema modes or routing enums.
 
-Before execution, the skill should create a `research_plan` JSON artifact in the agent's working notes. This artifact is not emitted by the CLI. Required fields are:
+Before execution, the skill should call `smart-search deep "question" --format json` to create a `research_plan` JSON artifact. Required fields are:
 
 - `mode`: always `deep_research`.
+- `query_mode`: always `deep`.
 - `question`: the user's research question.
+- `trigger_source`: usually `explicit_cli`.
 - `difficulty`: `standard` or `high`.
 - `intent_signals`: dimensional signals such as `recency_requirement`, `docs_api_intent`, `locale_domain_scope`, `known_url`, `source_authority_need`, `claim_risk`, `cross_validation_need`, and `breadth_depth_budget`.
+- `decomposition`: subquestions for complex research, each with `id`, `question`, `reason`, and `required_capabilities`.
 - `capability_plan`: the selected capability needs and the CLI tools chosen for each need.
 - `evidence_policy`: default `fetch_before_claim`.
+- `preflight`: `doctor` guidance. `deep` does not execute this by default.
 - `steps`: ordered CLI command steps.
 - `gap_check`: how the agent verifies that key claims have fetched evidence or downgrades unsupported claims to unverified candidates.
 - `final_answer_policy`: how to cite fetched evidence and list unverified candidates.
+- `usage_boundary`: user-facing distinction between fast live `search`, offline `deep` planning, and later step execution.
 
-Each `steps[]` item must include `tool`, `purpose`, `command`, and `output_path`. Allowed `tool` values are `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`; these map to existing CLI commands only. `doctor` is a `preflight` action, not a `steps[]` item. Use `C:\tmp\smart-search-evidence\<timestamp>-<slug>\` or an equivalent absolute evidence directory for `output_path` values.
+Each `steps[]` item must include `id`, `subquestion_id`, `tool`, `purpose`, `command`, and `output_path`. Allowed `tool` values are `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`; these map to existing CLI commands only. `doctor` is a `preflight` action, not a `steps[]` item. Use `C:\tmp\smart-search-evidence\<timestamp>-<slug>\` or an equivalent absolute evidence directory for `output_path` values.
 
 Capability boundaries:
 
@@ -148,14 +157,19 @@ Capability boundaries:
 Default Deep Research orchestration:
 
 1. Run `smart-search doctor --format json` as preflight when configuration is uncertain.
-2. Infer `intent_signals` from the natural-language prompt.
-3. Generate a `capability_plan` instead of selecting a fixed topic recipe.
-4. Use `smart-search search ... --validation balanced --extra-sources 1..3` for broad discovery.
-5. Add `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, or `map` only when the capability boundary matches the intent.
-6. Use `fetch` for key URLs before making claim-level statements.
-7. Run `gap_check`: fetch missing evidence for key claims or downgrade them to unverified candidates.
+2. Call `smart-search deep "question" --format json` to generate `intent_signals`, `decomposition`, and `capability_plan` instead of selecting a fixed topic recipe.
+3. Use planned `smart-search search ... --validation balanced --extra-sources 1..3` steps for broad discovery.
+4. Add planned `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, or `map` only when the capability boundary matches the intent.
+5. Use `fetch` for key URLs before making claim-level statements.
+6. Run `gap_check`: fetch missing evidence for key claims or downgrade them to unverified candidates.
 
 `fetch_before_claim` means key claims must be backed by fetched page content. `primary_sources` and `extra_sources` are discovery candidates until fetched. Final answers should include fetched evidence, unverified candidate sources, and key commands used.
+
+Planner closeout lessons:
+
+- Budget limits must not break evidence policy. Even `--budget quick` plans must retain at least one `fetch` step when claim-level conclusions are expected, and retained steps must keep valid `subquestion_id` links.
+- `steps[].command` and `steps[].output_path` are one contract. The `--output` path embedded in the executable command must match `output_path`; otherwise the AI agent cannot reliably find saved evidence.
+- Prefer PowerShell-safe quoted commands in generated plans because Windows users often copy planned steps directly from Markdown or JSON output.
 
 Deep Research smoke coverage is mock-full plus live-limited. Mock-full coverage should cover trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence paths, capability boundaries, `intent_signals`, `capability_plan`, `gap_check`, simple current prompts such as `深度搜索一下最近的比特币行情`, docs/API prompts, claim-verification prompts, user-provided URL fetch-first flows, missing-provider failure guidance, and the rule that fixed topic recipe ids are not required schema. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` when real keys are available and live checks are expected. If a smoke issue is found, fix the affected docs/code/tests and rerun the affected smoke until it passes or is proven to be an external provider blocker.
 

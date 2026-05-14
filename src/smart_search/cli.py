@@ -35,6 +35,7 @@ COMMAND_ALIASES = {
     "zhipu-search": ["z", "zp"],
     "context7-library": ["c7", "ctx7"],
     "context7-docs": ["c7d", "c7docs", "ctx7-docs"],
+    "deep": ["dr"],
     "smoke": ["sm"],
     "doctor": ["d"],
     "model": ["mdl"],
@@ -184,10 +185,46 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
         return "\n".join(lines).strip() + "\n"
     if command == "fetch":
         return (data.get("content") or "") + ("\n" if data.get("content") else "")
+    if command == "deep":
+        lines = [
+            f"# Deep Research Plan",
+            "",
+            f"**Question:** {data.get('question', '')}",
+            f"**Mode:** {data.get('mode', '')}",
+            f"**Difficulty:** {data.get('difficulty', '')}",
+            f"**Evidence policy:** {data.get('evidence_policy', '')}",
+            "",
+            "## Boundary",
+        ]
+        usage_boundary = data.get("usage_boundary") or {}
+        for key in ("search", "deep", "execution"):
+            if usage_boundary.get(key):
+                lines.append(f"- **{key}:** {usage_boundary[key]}")
+        decomposition = data.get("decomposition") or []
+        if decomposition:
+            lines.extend(["", "## Decomposition"])
+            for item in decomposition:
+                lines.append(f"- **{item.get('id', '')}:** {item.get('question', '')}")
+        steps = data.get("steps") or []
+        if steps:
+            lines.extend(["", "## Steps"])
+            for step in steps:
+                lines.append(f"{step.get('id', '')}. `{step.get('tool', '')}` ({step.get('subquestion_id', '')}) - {step.get('purpose', '')}")
+                lines.append(f"   ```powershell\n   {step.get('command', '')}\n   ```")
+        gap_check = data.get("gap_check") or {}
+        if gap_check:
+            lines.extend(["", "## Gap Check", gap_check.get("rule", "")])
+        return "\n".join(lines).strip() + "\n"
     return _json(data)
 
 
 def _format_content(data: dict[str, Any]) -> str:
+    if data.get("mode") == "deep_research":
+        lines = [
+            f"Deep Research plan for: {data.get('question', '')}",
+            "This command only plans; execute the listed CLI steps to perform live research.",
+        ]
+        return "\n".join(lines) + "\n"
     content = data.get("content")
     if content is None:
         content = ""
@@ -1194,6 +1231,13 @@ async def _run_async(args: argparse.Namespace) -> int:
     if args.command == "context7-docs":
         data = await service.context7_docs(args.library_id, args.query)
         return _print_result("context7-docs", data, args.format, args.output)
+    if args.command == "deep":
+        data = service.build_deep_research_plan(
+            args.query,
+            budget=args.budget,
+            evidence_dir=args.evidence_dir,
+        )
+        return _print_result("deep", data, args.format, args.output)
     if args.command == "smoke":
         data = await service.smoke(args.mode)
         return _print_result("smoke", data, args.format, args.output)
@@ -1432,6 +1476,17 @@ def build_parser() -> argparse.ArgumentParser:
     context7_docs_parser.add_argument("library_id")
     context7_docs_parser.add_argument("query")
     _add_format_args(context7_docs_parser)
+
+    deep_parser = sub.add_parser(
+        "deep",
+        aliases=COMMAND_ALIASES["deep"],
+        help="Create an offline Deep Research plan without calling providers.",
+    )
+    deep_parser.set_defaults(command="deep")
+    deep_parser.add_argument("query")
+    deep_parser.add_argument("--budget", choices=["quick", "standard", "deep"], default="standard")
+    deep_parser.add_argument("--evidence-dir", default="")
+    _add_format_args(deep_parser)
 
     smoke_parser = sub.add_parser(
         "smoke", aliases=COMMAND_ALIASES["smoke"], help="Run provider routing and fallback smoke checks."

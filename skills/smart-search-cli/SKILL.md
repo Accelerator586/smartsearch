@@ -26,16 +26,18 @@ Use the local `smart-search` command as the default execution layer for web rese
 
 ## Deep Research Mode
 
-Use Deep Research Mode when the user asks for `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, or selection/comparison research. This is a skill-layer capability-based orchestration workflow: the AI agent infers the capabilities needed by the prompt, composes existing `smart-search` CLI building blocks, the CLI executes them, and JSON/Markdown files provide reproducible evidence. It does not add or require a `smart-search deep` command, does not change default `smart-search search`, and does not depend on an MCP session.
+Use Deep Research Mode when the user asks for `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, or selection/comparison research. This is a capability-based orchestration workflow: the AI agent calls `smart-search deep "question" --format json` to get an offline plan, then composes existing `smart-search` CLI building blocks, the CLI executes those later commands, and JSON/Markdown files provide reproducible evidence. `smart-search deep` is a public planner entrypoint, not an executor; it does not call providers, run `doctor`, or fetch pages by default. It does not change default `smart-search search`, and it does not depend on an MCP session.
 
 Do not select a fixed topic recipe. Market, product, technical docs, news, policy, claim-checking, and URL-first prompts are examples of user language, not schema modes. Decide from intent dimensions and capability needs.
 
-Before running deep research commands, create a `research_plan` JSON planning artifact in your working notes. It is not a public CLI output. Use this shape:
+Before running deep research commands, run `smart-search deep "question" --format json` and use the returned `research_plan` as your planning artifact. Use this shape:
 
 ```json
 {
   "mode": "deep_research",
+  "query_mode": "deep",
   "question": "user question",
+  "trigger_source": "explicit_cli",
   "difficulty": "standard|high",
   "intent_signals": {
     "recency_requirement": "none|recent|current",
@@ -47,6 +49,14 @@ Before running deep research commands, create a `research_plan` JSON planning ar
     "cross_validation_need": "normal|high",
     "breadth_depth_budget": "quick|standard|deep"
   },
+  "decomposition": [
+    {
+      "id": "sq1",
+      "question": "subquestion",
+      "reason": "why this subquestion is needed",
+      "required_capabilities": ["broad_discovery"]
+    }
+  ],
   "capability_plan": [
     {
       "capability": "broad_discovery",
@@ -62,6 +72,8 @@ Before running deep research commands, create a `research_plan` JSON planning ar
   "evidence_policy": "fetch_before_claim",
   "steps": [
     {
+      "id": "s1",
+      "subquestion_id": "sq1",
       "tool": "search",
       "purpose": "broad discovery",
       "command": "smart-search search \"query\" --validation balanced --extra-sources 1 --format json --output C:\\tmp\\smart-search-evidence\\YYYYMMDD-HHMM-topic\\01-search.json",
@@ -72,11 +84,16 @@ Before running deep research commands, create a `research_plan` JSON planning ar
     "required": true,
     "rule": "fetch missing evidence for key claims or downgrade them to unverified candidates"
   },
-  "final_answer_policy": "cite fetched evidence, list unverified candidates, and include key commands"
+  "final_answer_policy": "cite fetched evidence, list unverified candidates, and include key commands",
+  "usage_boundary": {
+    "search": "smart-search search runs live fast/broad search immediately.",
+    "deep": "smart-search deep is an offline planner; it does not execute provider calls or fetch pages.",
+    "execution": "An AI agent or user executes the listed steps with existing CLI commands, then performs gap_check."
+  }
 }
 ```
 
-Allowed `steps[].tool` values are `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`. Each step must include `purpose`, `command`, and `output_path`. `doctor` is preflight and must not appear in `steps[]`. Keep the first plan to 2-5 sub-queries unless the user explicitly asks for exhaustive coverage.
+Allowed `steps[].tool` values are `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`. Each step must include `id`, `subquestion_id`, `purpose`, `command`, and `output_path`. `doctor` is preflight and must not appear in `steps[]`. Simple plans may have one subquestion; complex plans should use 2-6 subquestions unless the user explicitly asks for exhaustive coverage.
 
 Capability boundaries:
 
@@ -91,16 +108,25 @@ Capability boundaries:
 Default Deep Research orchestration:
 
 1. Run `smart-search doctor --format json` as preflight when configuration is uncertain.
-2. Infer `intent_signals` from the natural-language prompt, such as recency, docs/API intent, known URL, claim risk, authority need, and cross-validation need.
-3. Generate a `capability_plan`; do not choose fixed topic recipe ids.
-4. Use `search --validation balanced --extra-sources 1..3` for broad discovery and read its routing metadata.
-5. Add `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, or `map` only when their capability boundary matches the intent.
+2. Call `smart-search deep "question" --format json` to create an offline `research_plan`.
+3. Inspect `intent_signals`, `decomposition`, and `capability_plan`; do not choose fixed topic recipe ids.
+4. Execute planned `search --validation balanced --extra-sources 1..3` steps for broad discovery and read routing metadata.
+5. Execute planned `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, or `map` only when their capability boundary matches the intent.
 6. Use `fetch` on key URLs before making claim-level statements.
 7. Run `gap_check`: if an important claim lacks fetched evidence, fetch another source or mark the claim/source as unverified.
 
 Default evidence policy is `fetch_before_claim`: key claims in the final answer must be supported by fetched page text. Treat `primary_sources` and `extra_sources` as discovery candidates until the relevant URL has been fetched. The final answer should include fetched evidence, unverified candidate sources, and key commands used.
 
 Deep Research smoke matrix for workflow maintenance is mock-full plus live-limited. Mock-full coverage should include trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence output paths, capability boundaries, `intent_signals`, `capability_plan`, `gap_check`, simple current prompts such as `深度搜索一下最近的比特币行情`, docs/API prompts, claim-verification prompts, user-provided URL fetch-first flows, missing-provider failure guidance, and the rule that fixed topic recipe ids are not required schema. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` only when real keys are available and the user expects live checks.
+
+Standard user-facing Deep Research tests:
+
+```powershell
+smart-search deep "深度搜索一下最近的比特币行情" --format json
+smart-search deep "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选" --budget deep --format json
+smart-search deep "帮我核验这个说法是真是假：某某工具已经完全替代 Tavily 做 AI 搜索了" --format json
+smart-search deep "https://example.com/source" --format json
+```
 
 ## Provider Routing
 

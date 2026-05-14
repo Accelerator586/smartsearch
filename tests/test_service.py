@@ -117,6 +117,77 @@ def test_config_sources_report_config_file(monkeypatch, tmp_path):
     assert sources["SMART_SEARCH_API_URL"] == "default"
 
 
+def test_deep_research_plan_current_market_is_offline_and_fetch_before_claim(monkeypatch):
+    async def should_not_run_provider(*args, **kwargs):
+        raise AssertionError("build_deep_research_plan must not call live providers")
+
+    monkeypatch.setattr(service, "search", should_not_run_provider)
+    monkeypatch.setattr(service, "fetch", should_not_run_provider)
+    monkeypatch.setattr(service, "exa_search", should_not_run_provider)
+    monkeypatch.setattr(service, "zhipu_search", should_not_run_provider)
+
+    result = service.build_deep_research_plan(
+        "深度搜索一下最近的比特币行情",
+        evidence_dir="C:/tmp/smart-search-evidence/test-market",
+    )
+
+    assert result["ok"] is True
+    assert result["mode"] == "deep_research"
+    assert result["query_mode"] == "deep"
+    assert result["trigger_source"] == "explicit_cli"
+    assert result["intent_signals"]["recency_requirement"] in {"recent", "current"}
+    assert result["intent_signals"]["claim_risk"] == "high"
+    assert result["evidence_policy"] == "fetch_before_claim"
+    assert result["preflight"]["executed_by_deep_command"] is False
+    tools = {step["tool"] for step in result["steps"]}
+    assert {"search", "fetch"} <= tools
+    assert tools <= service.DEEP_ALLOWED_TOOLS
+    assert all(step["subquestion_id"] for step in result["steps"])
+
+
+def test_deep_research_plan_complex_docs_query_has_decomposition():
+    result = service.build_deep_research_plan(
+        "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选",
+        budget="deep",
+        evidence_dir="C:/tmp/smart-search-evidence/test-openai",
+    )
+
+    assert result["difficulty"] == "high"
+    assert result["intent_signals"]["docs_api_intent"] is True
+    assert len(result["decomposition"]) >= 4
+    tools = {step["tool"] for step in result["steps"]}
+    assert {"search", "exa-search", "context7-library", "context7-docs", "fetch"} <= tools
+    assert result["gap_check"]["unsupported_claim_action"] == "downgrade_to_unverified_candidate"
+
+
+def test_deep_research_plan_url_first_starts_with_fetch():
+    result = service.build_deep_research_plan(
+        "https://example.com/source",
+        evidence_dir="C:/tmp/smart-search-evidence/test-url",
+    )
+
+    assert result["intent_signals"]["known_url"] is True
+    assert result["difficulty"] == "standard"
+    assert result["steps"][0]["tool"] == "fetch"
+    assert "https://example.com/source" in result["steps"][0]["command"]
+    assert any(step["tool"] == "exa-similar" for step in result["steps"])
+
+
+def test_deep_research_quick_budget_keeps_fetch_and_valid_subquestion_links():
+    result = service.build_deep_research_plan(
+        "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选",
+        budget="quick",
+        evidence_dir="C:/tmp/smart-search-evidence/test-quick",
+    )
+
+    subquestion_ids = {item["id"] for item in result["decomposition"]}
+    assert len(result["steps"]) <= 4
+    assert any(step["tool"] == "fetch" for step in result["steps"])
+    assert all(step["subquestion_id"] in subquestion_ids for step in result["steps"])
+    for step in result["steps"]:
+        assert step["output_path"] in step["command"]
+
+
 def test_primary_api_mode_auto_resolves_xai(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
