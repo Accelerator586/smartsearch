@@ -10,7 +10,9 @@
 - Environment variables remain supported for CI and advanced users, and override the local config file.
 - Do not depend on MCP inline `env` values or committed API-key environment variables for CLI use.
 - On Windows with mise, the managed package name is `npm:@konbakuyomu/smart-search`; the executable remains `smart-search`. Diagnose mise managed installs with `mise ls "npm:@konbakuyomu/smart-search"` and `mise which smart-search` (the bare name `smart-search` is the bin, not a mise tool identifier).
-- In sandboxed runtimes (Codex CLI, containers, CI) where subprocesses cannot read the user's `~/.config`, set `SMART_SEARCH_CONFIG_DIR` to an absolute writable path. The CLI uses it for both config and logs.
+- On Windows, the default config file is `%LOCALAPPDATA%\smart-search\config.json`. Linux/macOS default to `~/.config/smart-search/config.json`.
+- `SMART_SEARCH_CONFIG_DIR` is an advanced override for CI, containers, sandboxes, or portable installs. The CLI uses it for config and relative logs and skips default-directory selection.
+- Earlier Windows source defaults used `~\.config\smart-search\config.json`, while some installs were already pinned to `%LOCALAPPDATA%\smart-search` through `SMART_SEARCH_CONFIG_DIR`. If the new Windows default file is missing but the old file exists, the active config source is `legacy_windows_home` so upgrades do not silently lose configuration. Diagnostics must expose the override value and whether it matches the current default.
 
 ## Commands
 
@@ -75,7 +77,7 @@ Successful search output includes `ok`, `query`, `primary_api_mode`, `content`, 
 
 `--format json` is the stable machine-readable contract for agents and scripts. JSON output remains parseable and uses readable non-ASCII text when the terminal encoding supports it.
 
-`--format markdown` is the human-readable report format. `doctor --format markdown` must render a compact health report with overall status, minimum profile, capability status, main-search provider checks, and provider connectivity checks instead of falling back to raw JSON. Provider list commands such as `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, and `map` render result lists or a clear no-results message.
+`--format markdown` is the human-readable report format. `doctor --format markdown` must render a detailed diagnostic report with overall status, active/default/legacy config paths, log path resolution, file-logging status, masked config values with sources, minimum profile, capability status, main-search provider checks, provider connectivity checks, model metadata, and full long error/message detail instead of falling back to raw JSON. Provider list commands such as `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, and `map` render result lists or a clear no-results message.
 
 `--format content` prints only the `content` field for content-bearing commands such as `search`, `fetch`, and `context7-docs`. Commands without a `content` field, including `doctor`, `smoke`, `config`, and `model`, must print a compact non-empty text summary rather than an empty stdout.
 
@@ -119,7 +121,9 @@ Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `el
 
 Deep planner output includes `ok`, `mode`, `query_mode`, `question`, `trigger_source`, `difficulty`, `intent_signals`, `decomposition`, `capability_plan`, `evidence_policy`, `preflight`, `steps`, `gap_check`, `final_answer_policy`, `usage_boundary`, `allowed_tools`, `evidence_dir`, and `elapsed_ms`. `smart-search deep` is offline by default: `preflight.executed_by_deep_command=false`, no provider calls are made, and live research only happens when an AI agent or user executes `steps[].command`.
 
-Diagnostic output masks keys, reports `config_file` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main-search provider check. OpenAI-compatible provider health must be validated through `/chat/completions`; `/models` is supplementary metadata and must not be the health gate. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
+Diagnostic output masks keys, reports `config_file` / `config_dir` / `config_dir_source` / `default_config_file` / Windows legacy config metadata / `config_dir_override_value` / `config_dir_override_matches_default` / `log_dir_config_value` / `resolved_log_dir` / `file_logging_enabled` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main provider check. OpenAI-compatible provider health must be validated through `/chat/completions`; `/models` is supplementary metadata and must not be the health gate. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
+
+When a Windows user reports that different versions seem to use different config paths, diagnose in this order: `config_dir_source`, `config_dir_override_value`, `config_dir_override_matches_default`, then `legacy_windows_config_exists`. A source of `environment` with `config_dir_override_matches_default=true` means the active path is pinned by `SMART_SEARCH_CONFIG_DIR` but is functionally the same as the current default. Do not delete either config file or the user-level override until the upgraded CLI has been verified with `config path`, `doctor`, and smoke/regression checks.
 
 Smoke output includes `ok`, `mode`, `failed_cases`, `cases`, `provider_attempts`, and `elapsed_ms`. Live smoke may include `degraded_cases` when a provider fails but a same-capability fallback remains available.
 

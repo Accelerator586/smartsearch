@@ -185,6 +185,14 @@ def _markdown_table(headers: list[str], rows: list[list[Any]]) -> list[str]:
     return lines
 
 
+def _markdown_code_block(value: Any) -> list[str]:
+    text = "" if value is None else str(value)
+    fence = "```"
+    if fence in text:
+        text = text.replace(fence, "` ` `")
+    return ["```text", text, "```"]
+
+
 def _status_label(value: Any) -> str:
     if isinstance(value, bool):
         return "OK" if value else "FAIL"
@@ -205,6 +213,10 @@ def _status_label(value: Any) -> str:
         "skipped": "SKIPPED",
     }
     return labels.get(normalized, status.upper() if status else "-")
+
+
+def _yes_no(value: Any) -> str:
+    return "YES" if bool(value) else "NO"
 
 
 def _latency_text(value: Any) -> str:
@@ -233,6 +245,18 @@ def _error_lines(data: dict[str, Any]) -> list[str]:
     for error in parameter_errors:
         lines.append(f"- Config: {error}")
     return lines
+
+
+def _error_summary(data: dict[str, Any]) -> str:
+    error_type = data.get("error_type")
+    error = data.get("error")
+    if error_type and error:
+        return f"{error_type}: {error}"
+    if error:
+        return str(error)
+    if error_type:
+        return str(error_type)
+    return ""
 
 
 def _result_title(item: Any, index: int) -> str:
@@ -312,12 +336,40 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
         "",
         f"Overall: {_status_label(data.get('ok'))}",
         f"Config file: `{data.get('config_file', '')}`",
+        f"Config dir: `{data.get('config_dir', '')}`",
+        f"Config dir source: `{data.get('config_dir_source', '-')}`",
+        f"Default config file: `{data.get('default_config_file', '')}`",
         f"Config status: {data.get('config_status', '-')}",
         f"Minimum profile: {_status_label(data.get('minimum_profile_ok'))}",
+        f"Log dir config value: `{data.get('log_dir_config_value', data.get('SMART_SEARCH_LOG_DIR', ''))}`",
+        f"Resolved log dir: `{data.get('resolved_log_dir', '')}`",
+        f"File logging enabled: {_yes_no(data.get('file_logging_enabled'))}",
     ]
+    if data.get("legacy_windows_config_file"):
+        lines.append(f"Legacy Windows config file: `{data.get('legacy_windows_config_file')}`")
+        lines.append(f"Legacy Windows config exists: {_status_label(data.get('legacy_windows_config_exists'))}")
+    if data.get("config_dir_override_value"):
+        lines.append(f"SMART_SEARCH_CONFIG_DIR: `{data.get('config_dir_override_value')}`")
+        lines.append(f"Override matches default: {_yes_no(data.get('config_dir_override_matches_default'))}")
+        if data.get("config_dir_source") == "environment" and data.get("config_dir_override_matches_default"):
+            lines.append(
+                "The active config path comes from `SMART_SEARCH_CONFIG_DIR`, but that override matches the current Windows default path."
+            )
+    if data.get("config_dir_source") == "legacy_windows_home":
+        lines.append(
+            "Active config is using the old Windows `~\\.config\\smart-search` location because the new default file does not exist."
+        )
     missing = data.get("minimum_profile_missing") or []
     if missing:
         lines.append(f"Missing: `{', '.join(str(item) for item in missing)}`")
+
+    config_sources = data.get("config_sources") or {}
+    if config_sources:
+        rows = []
+        for key in sorted(config_sources):
+            rows.append([key, config_sources.get(key), data.get(key, "-")])
+        lines.extend(["", "## Configuration Values"])
+        lines.extend(_markdown_table(["Key", "Source", "Value"], rows))
 
     capability_status = data.get("capability_status") or {}
     if capability_status:
@@ -351,6 +403,7 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
                 )
         lines.extend(["", "## Main Search Providers"])
         lines.extend(_markdown_table(["Provider", "Status", "Latency", "Message"], rows))
+        lines.extend(_provider_detail_lines("Provider Details", main_tests))
 
     provider_tests = [
         ("exa", data.get("exa_connection_test") or {}),
@@ -373,9 +426,52 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
     if rows:
         lines.extend(["", "## Provider Checks"])
         lines.extend(_markdown_table(["Provider", "Status", "Latency", "Message"], rows))
+        lines.extend(_provider_detail_lines("Provider Check Details", dict(provider_tests)))
 
     lines.extend(_error_lines(data))
     return "\n".join(lines).strip() + "\n"
+
+
+def _provider_detail_lines(title: str, provider_tests: dict[str, Any]) -> list[str]:
+    details: list[str] = []
+    for provider, test in provider_tests.items():
+        if not isinstance(test, dict) or not test:
+            continue
+        message = test.get("message")
+        available_models = test.get("available_models") or []
+        nested_checks = [
+            ("models_endpoint_test", test.get("models_endpoint_test")),
+            ("chat_completion_test", test.get("chat_completion_test")),
+        ]
+        if not message and not available_models and not any(isinstance(item, dict) for _, item in nested_checks):
+            continue
+        details.extend(
+            [
+                "",
+                f"### {provider}",
+                "",
+                f"- Status: {_status_label(test.get('status'))}",
+                f"- Latency: {_latency_text(test.get('response_time_ms'))}",
+            ]
+        )
+        if message:
+            details.extend(["- Message:"])
+            details.extend(_markdown_code_block(message))
+        if available_models:
+            details.append("- Available models: `" + "`, `".join(str(model) for model in available_models) + "`")
+        for name, nested in nested_checks:
+            if not isinstance(nested, dict):
+                continue
+            details.extend(
+                [
+                    f"- {name}: {_status_label(nested.get('status'))}, {_latency_text(nested.get('response_time_ms'))}",
+                ]
+            )
+            if nested.get("message"):
+                details.extend(_markdown_code_block(nested.get("message")))
+    if not details:
+        return []
+    return ["", f"## {title}", *details]
 
 
 def _format_smoke_markdown(data: dict[str, Any]) -> str:
@@ -410,6 +506,18 @@ def _format_config_markdown(data: dict[str, Any]) -> str:
     lines = ["# Smart Search Config", "", f"Status: {_status_label(data.get('ok'))}"]
     if data.get("config_file"):
         lines.append(f"Config file: `{data.get('config_file')}`")
+    if data.get("config_dir"):
+        lines.append(f"Config dir: `{data.get('config_dir')}`")
+    if data.get("config_dir_source"):
+        lines.append(f"Config dir source: `{data.get('config_dir_source')}`")
+    if data.get("default_config_file"):
+        lines.append(f"Default config file: `{data.get('default_config_file')}`")
+    if data.get("legacy_windows_config_file"):
+        lines.append(f"Legacy Windows config file: `{data.get('legacy_windows_config_file')}`")
+        lines.append(f"Legacy Windows config exists: {_status_label(data.get('legacy_windows_config_exists'))}")
+    if data.get("config_dir_override_value"):
+        lines.append(f"SMART_SEARCH_CONFIG_DIR: `{data.get('config_dir_override_value')}`")
+        lines.append(f"Override matches default: {_yes_no(data.get('config_dir_override_matches_default'))}")
     if "exists" in data:
         lines.append(f"Exists: {_status_label(bool(data.get('exists')))}")
     if data.get("key"):
@@ -461,6 +569,12 @@ def _format_setup_markdown(data: dict[str, Any]) -> str:
 
 def _format_markdown(command: str, data: dict[str, Any]) -> str:
     if command == "search":
+        if not data.get("ok", False) and (data.get("error") or data.get("error_type")):
+            lines = ["# Smart Search Search", ""]
+            if data.get("query"):
+                lines.append(f"Query: `{data.get('query')}`")
+            lines.extend(_error_lines(data))
+            return "\n".join(lines).strip() + "\n"
         lines = [data.get("content", "")]
         primary_sources = data.get("primary_sources") or []
         extra_sources = data.get("extra_sources") or []
@@ -578,9 +692,14 @@ def _plain_result_lines(data: dict[str, Any]) -> list[str]:
 def _format_content(command: str, data: dict[str, Any]) -> str:
     if command in {"search", "fetch", "context7-docs"}:
         content = data.get("content")
-        if content is None:
-            content = ""
-        return str(content) + ("\n" if content else "")
+        if content:
+            return str(content) + "\n"
+        if data.get("ok"):
+            return ""
+        error = _error_summary(data)
+        if error:
+            return f"{_status_label(data.get('ok'))}: {error}\n"
+        return ""
     if command == "deep" or data.get("mode") == "deep_research":
         lines = [
             f"Deep Research plan for: {data.get('question', '')}",
@@ -600,7 +719,7 @@ def _format_content(command: str, data: dict[str, Any]) -> str:
         if capability_bits:
             lines.append("Capabilities: " + ", ".join(capability_bits))
         if data.get("error"):
-            lines.append(f"Error: {data.get('error')}")
+            lines.append(f"Error: {_error_summary(data)}")
         return "\n".join(lines).strip() + "\n"
     if command == "smoke":
         cases = data.get("cases") or []
@@ -611,6 +730,10 @@ def _format_content(command: str, data: dict[str, Any]) -> str:
         parts = [f"Config {_status_label(data.get('ok'))}"]
         if data.get("config_file"):
             parts.append(f"file={data.get('config_file')}")
+        if data.get("config_dir_source"):
+            parts.append(f"source={data.get('config_dir_source')}")
+        if data.get("config_dir_override_value"):
+            parts.append(f"override={data.get('config_dir_override_value')}")
         if data.get("key"):
             parts.append(f"key={data.get('key')}")
         if data.get("value"):
@@ -619,11 +742,11 @@ def _format_content(command: str, data: dict[str, Any]) -> str:
         if values:
             parts.append(f"values={len(values)}")
         if data.get("error"):
-            parts.append(f"error={data.get('error')}")
+            parts.append(f"error={_error_summary(data)}")
         return "; ".join(parts) + "\n"
     if command == "model":
         if data.get("error"):
-            return f"Model {_status_label(data.get('ok'))}: {data.get('error')}\n"
+            return f"Model {_status_label(data.get('ok'))}: {_error_summary(data)}\n"
         rows = []
         if data.get("xai_model"):
             rows.append(f"xai-responses={data.get('xai_model')}")
@@ -634,16 +757,16 @@ def _format_content(command: str, data: dict[str, Any]) -> str:
         return ("Models: " + ", ".join(rows) if rows else f"Model {_status_label(data.get('ok'))}") + "\n"
     if command == "setup":
         if data.get("error"):
-            return f"Setup {_status_label(data.get('ok'))}: {data.get('error')}\n"
+            return f"Setup {_status_label(data.get('ok'))}: {_error_summary(data)}\n"
         saved = data.get("saved") or data.get("values") or {}
         return f"Setup {_status_label(data.get('ok'))}: {len(saved)} values saved\n"
     if command in {"map", "exa-search", "exa-similar", "zhipu-search", "context7-library"}:
         lines = _plain_result_lines(data)
         if data.get("error"):
-            lines.append(f"Error: {data.get('error')}")
+            lines.append(f"Error: {_error_summary(data)}")
         return "\n".join(lines).strip() + "\n"
     if data.get("error"):
-        return f"{_status_label(data.get('ok'))}: {data.get('error')}\n"
+        return f"{_status_label(data.get('ok'))}: {_error_summary(data)}\n"
     return f"{command}: {_status_label(data.get('ok'))}\n"
 
 
@@ -1580,7 +1703,7 @@ async def _run_async(args: argparse.Namespace) -> int:
             )
         except asyncio.TimeoutError:
             data = _search_timeout_result(args.query, args.timeout)
-            return _print_result("search", data, "json", args.output)
+            return _print_result("search", data, args.format, args.output)
         return _print_result("search", data, args.format, args.output)
     if args.command == "fetch":
         data = await service.fetch(args.url)

@@ -236,6 +236,13 @@ smart-search setup --non-interactive `
 
 缺少任一最低能力时，`doctor` 和 `search` 会 fail closed 并返回缺失 capability。`SMART_SEARCH_MINIMUM_PROFILE=off` 只建议本地实验使用。
 
+本机配置文件位置：
+
+- Windows 默认：`%LOCALAPPDATA%\smart-search\config.json`。
+- Linux/macOS 默认：`~/.config/smart-search/config.json`。
+- `SMART_SEARCH_CONFIG_DIR` 是高级覆盖项，适合 CI、容器、沙箱或便携安装。
+- 更早的 Windows 源码默认路径曾是 `~\.config\smart-search\config.json`，但有些安装会通过 `SMART_SEARCH_CONFIG_DIR` 提前固定到 `%LOCALAPPDATA%\smart-search`。如果新版默认位置还没有配置，但旧 home 路径存在配置，Smart Search 会以 `legacy_windows_home` 方式继续读取旧配置，避免升级后配置丢失；`doctor` 会同时报告当前生效路径、默认路径、旧 home 路径、`SMART_SEARCH_CONFIG_DIR` 的值，以及这个覆盖项是不是只是等于当前默认路径。
+
 常用环境变量：
 
 | 变量 | 用途 |
@@ -306,7 +313,7 @@ smart-search search "query" --format json
 smart-search doctor --format json
 ```
 
-给人看连接状态、冒烟结果、来源列表、网页正文时用 Markdown：
+给人看连接状态、详细排障报告、冒烟结果、来源列表、网页正文时用 Markdown：
 
 ```powershell
 smart-search doctor --format markdown
@@ -321,6 +328,8 @@ smart-search fetch "https://example.com" --format markdown
 smart-search search "nba战报" --format content
 smart-search doctor --format content
 ```
+
+`content` 刻意保持很短，只适合快速看结论。完整排障给人看用 `doctor --format markdown`，给脚本和 AI 解析用 `doctor --format json`。
 
 多来源研究建议保存证据文件：
 

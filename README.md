@@ -220,6 +220,13 @@ Minimum profile defaults to `standard`, requiring at least:
 
 Missing required capabilities fail closed with a configuration error. Use `SMART_SEARCH_MINIMUM_PROFILE=off` only for local experiments.
 
+Local config path:
+
+- Windows default: `%LOCALAPPDATA%\smart-search\config.json`.
+- Linux/macOS default: `~/.config/smart-search/config.json`.
+- `SMART_SEARCH_CONFIG_DIR` is an advanced override for CI, containers, sandboxes, or portable installs.
+- Earlier Windows source builds defaulted to `~\.config\smart-search\config.json`, while some installs were already pinned to `%LOCALAPPDATA%\smart-search` through `SMART_SEARCH_CONFIG_DIR`. If the new Windows default file is missing but the old home config exists, Smart Search reads the old file as `legacy_windows_home` so upgrades do not lose configuration. `doctor` reports the active path, default path, old home path, `SMART_SEARCH_CONFIG_DIR`, and whether that override merely matches the current default.
+
 ## Commands
 
 | Command | Alias | Purpose |
@@ -266,7 +273,7 @@ smart-search search "query" --format json
 smart-search doctor --format json
 ```
 
-Use Markdown for human-readable reports, source lists, and fetched page text:
+Use Markdown for human-readable reports, detailed diagnostics, source lists, and fetched page text:
 
 ```powershell
 smart-search doctor --format markdown
@@ -281,6 +288,8 @@ Use `content` for compact terminal reading:
 smart-search search "nba report" --format content
 smart-search doctor --format content
 ```
+
+`content` is intentionally brief. Use `doctor --format markdown` for human troubleshooting and `doctor --format json` for the complete machine-readable contract.
 
 Save multi-source evidence under a stable folder:
 

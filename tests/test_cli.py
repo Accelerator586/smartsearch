@@ -226,11 +226,29 @@ def test_context7_docs_content_format_outputs_content(monkeypatch, capsys):
 
 
 def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
+    long_message = "provider detail " + ("x" * 220)
+
     async def fake_doctor():
         return {
             "ok": True,
             "config_file": "C:/tmp/config.json",
+            "config_dir": "C:/tmp",
+            "config_dir_source": "environment",
+            "default_config_file": "C:/Users/example/AppData/Local/smart-search/config.json",
+            "legacy_windows_config_file": "C:/Users/example/.config/smart-search/config.json",
+            "legacy_windows_config_exists": True,
+            "config_dir_override_value": "C:/Users/example/AppData/Local/smart-search",
+            "config_dir_override_matches_default": True,
+            "log_dir_config_value": "logs",
+            "resolved_log_dir": "C:/tmp/logs",
+            "file_logging_enabled": False,
             "config_status": "ok: complete",
+            "XAI_API_KEY": "未配置",
+            "SMART_SEARCH_LOG_DIR": "logs",
+            "config_sources": {
+                "XAI_API_KEY": "default",
+                "SMART_SEARCH_LOG_DIR": "default",
+            },
             "minimum_profile_ok": True,
             "minimum_profile_missing": [],
             "capability_status": {
@@ -239,7 +257,14 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
                 "web_fetch": {"ok": True, "configured": ["tavily"], "fallback_chain": ["tavily", "firecrawl"]},
             },
             "main_search_connection_tests": {
-                "openai-compatible": {"status": "ok", "message": "chat ok", "response_time_ms": 123.45}
+                "openai-compatible": {
+                    "status": "ok",
+                    "message": long_message,
+                    "response_time_ms": 123.45,
+                    "available_models": ["relay-model"],
+                    "chat_completion_test": {"status": "ok", "message": "chat ok", "response_time_ms": 100.0},
+                    "models_endpoint_test": {"status": "ok", "message": "models ok", "response_time_ms": 23.45},
+                }
             },
             "exa_connection_test": {"status": "ok", "message": "Exa ok", "response_time_ms": 11.1},
             "tavily_connection_test": {"status": "ok", "message": "Tavily ok", "response_time_ms": 22.2},
@@ -257,9 +282,24 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
     assert not out.lstrip().startswith("{")
     assert "# Smart Search Doctor" in out
     assert "Overall: OK" in out
+    assert "Config dir source: `environment`" in out
+    assert "Default config file: `C:/Users/example/AppData/Local/smart-search/config.json`" in out
+    assert "Legacy Windows config file: `C:/Users/example/.config/smart-search/config.json`" in out
+    assert "Legacy Windows config exists: OK" in out
+    assert "SMART_SEARCH_CONFIG_DIR: `C:/Users/example/AppData/Local/smart-search`" in out
+    assert "Override matches default: YES" in out
+    assert "override matches the current Windows default path" in out
+    assert "Log dir config value: `logs`" in out
+    assert "Resolved log dir: `C:/tmp/logs`" in out
+    assert "File logging enabled: NO" in out
+    assert "## Configuration Values" in out
+    assert "| XAI_API_KEY | default | 未配置 |" in out
     assert "## Capabilities" in out
     assert "## Main Search Providers" in out
     assert "openai-compatible" in out
+    assert "## Provider Details" in out
+    assert long_message in out
+    assert "relay-model" in out
     assert "Tavily ok" in out
 
 
@@ -442,7 +482,7 @@ def test_doctor_alias_uses_canonical_command(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["config_status"] == "ok"
 
 
-def test_search_timeout_outputs_json_and_exit_4(monkeypatch, capsys):
+def test_search_timeout_respects_requested_format_and_exit_4(monkeypatch, capsys):
     async def slow_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
         await asyncio.sleep(1)
         return {
@@ -459,15 +499,21 @@ def test_search_timeout_outputs_json_and_exit_4(monkeypatch, capsys):
 
     assert code == cli.EXIT_NETWORK_ERROR
     out = capsys.readouterr()
-    data = json.loads(out.out)
     assert out.err == ""
-    assert data["ok"] is False
-    assert data["error_type"] == "network_error"
-    assert "0.01" in data["error"]
-    assert "seconds" in data["error"]
-    assert data["query"] == "slow query"
-    assert data["content"] == ""
-    assert data["sources"] == []
+    assert out.out.startswith("\n## Errors") or "## Errors" in out.out
+    assert "network_error" in out.out
+    assert "0.01" in out.out
+    assert "seconds" in out.out
+
+    code = cli.main(["search", "slow query", "--timeout", "0.01", "--format", "content"])
+    assert code == cli.EXIT_NETWORK_ERROR
+    content_out = capsys.readouterr().out
+    assert "network_error" in content_out
+    assert "Search timed out after 0.01 seconds" in content_out
+
+    code = cli.main(["search", "slow query", "--timeout", "0.01", "--format", "json"])
+    assert code == cli.EXIT_NETWORK_ERROR
+    data = json.loads(capsys.readouterr().out)
     assert data["sources_count"] == 0
     assert data["primary_sources"] == []
     assert data["primary_sources_count"] == 0
@@ -743,7 +789,18 @@ def test_smoke_markdown_and_content_are_human_readable(monkeypatch, capsys):
 
 def test_config_markdown_and_content_are_masked_and_non_json(monkeypatch, capsys):
     def fake_config_path():
-        return {"ok": True, "config_file": "C:/tmp/config.json", "exists": True}
+        return {
+            "ok": True,
+            "config_file": "C:/tmp/config.json",
+            "config_dir": "C:/tmp",
+            "config_dir_source": "environment",
+            "default_config_file": "C:/Users/example/AppData/Local/smart-search/config.json",
+            "legacy_windows_config_file": "C:/Users/example/.config/smart-search/config.json",
+            "legacy_windows_config_exists": False,
+            "config_dir_override_value": "C:/tmp",
+            "config_dir_override_matches_default": False,
+            "exists": True,
+        }
 
     def fake_config_list(show_secrets=False):
         return {"ok": True, "config_file": "C:/tmp/config.json", "values": {"XAI_API_KEY": "xai-********cret", "XAI_MODEL": "grok"}}
@@ -763,6 +820,8 @@ def test_config_markdown_and_content_are_masked_and_non_json(monkeypatch, capsys
     path_out = capsys.readouterr().out
     assert "# Smart Search Config" in path_out
     assert "C:/tmp/config.json" in path_out
+    assert "Config dir source: `environment`" in path_out
+    assert "SMART_SEARCH_CONFIG_DIR: `C:/tmp`" in path_out
 
     assert cli.main(["config", "list", "--format", "markdown"]) == cli.EXIT_OK
     list_out = capsys.readouterr().out

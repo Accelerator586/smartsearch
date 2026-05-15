@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 class Config:
@@ -60,15 +61,56 @@ class Config:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._config_file = None
+            cls._instance._config_dir_source = None
             cls._instance._cached_model = None
         return cls._instance
 
     @staticmethod
-    def _resolve_config_dir() -> tuple[Path, bool]:
+    def _default_config_dir() -> Path:
+        if sys.platform.startswith("win"):
+            local_appdata = os.getenv("LOCALAPPDATA")
+            if local_appdata:
+                return Path(local_appdata).expanduser() / "smart-search"
+        return Path.home() / ".config" / "smart-search"
+
+    @staticmethod
+    def _legacy_windows_config_dir() -> Path:
+        return Path.home() / ".config" / "smart-search"
+
+    @staticmethod
+    def _config_dir_override_value() -> str:
+        return os.getenv("SMART_SEARCH_CONFIG_DIR") or ""
+
+    @staticmethod
+    def _same_config_dir(left: Path, right: Path) -> bool:
+        left_text = os.path.abspath(os.path.expanduser(str(left)))
+        right_text = os.path.abspath(os.path.expanduser(str(right)))
+        if sys.platform.startswith("win"):
+            left_text = left_text.replace("/", "\\").rstrip("\\").lower()
+            right_text = right_text.replace("/", "\\").rstrip("\\").lower()
+        else:
+            left_text = left_text.rstrip("/")
+            right_text = right_text.rstrip("/")
+        return left_text == right_text
+
+    @classmethod
+    def _config_dir_override_matches_default(cls) -> bool:
+        env_dir = cls._config_dir_override_value()
+        if not env_dir:
+            return False
+        return cls._same_config_dir(Path(env_dir).expanduser(), cls._default_config_dir())
+
+    @staticmethod
+    def _resolve_config_dir() -> tuple[Path, str]:
         env_dir = os.getenv("SMART_SEARCH_CONFIG_DIR")
         if env_dir:
-            return Path(env_dir).expanduser(), True
-        return Path.home() / ".config" / "smart-search", False
+            return Path(env_dir).expanduser(), "environment"
+        default_dir = Config._default_config_dir()
+        if sys.platform.startswith("win"):
+            legacy_dir = Config._legacy_windows_config_dir()
+            if legacy_dir != default_dir and not (default_dir / "config.json").exists() and (legacy_dir / "config.json").exists():
+                return legacy_dir, "legacy_windows_home"
+        return default_dir, "default"
 
     @staticmethod
     def _safe_mkdir(p: Path) -> bool:
@@ -81,14 +123,22 @@ class Config:
     @property
     def config_file(self) -> Path:
         if self._config_file is None:
-            config_dir, env_pinned = self._resolve_config_dir()
+            config_dir, config_dir_source = self._resolve_config_dir()
             ok = self._safe_mkdir(config_dir)
-            if not env_pinned and not ok:
+            if config_dir_source == "default" and not ok:
                 cwd_dir = Path.cwd() / ".smart-search"
                 if self._safe_mkdir(cwd_dir):
                     config_dir = cwd_dir
+                    config_dir_source = "cwd_fallback"
             self._config_file = config_dir / "config.json"
+            self._config_dir_source = config_dir_source
         return self._config_file
+
+    @property
+    def config_dir_source(self) -> str:
+        if self._config_file is None:
+            _ = self.config_file
+        return self._config_dir_source or "override"
 
     def _load_config_file(self) -> dict:
         try:
@@ -194,7 +244,18 @@ class Config:
             self._cached_model = None
 
     def config_path_info(self) -> dict:
-        return {"ok": True, "config_file": str(self.config_file), "exists": self.config_file.exists()}
+        return {
+            "ok": True,
+            "config_file": str(self.config_file),
+            "config_dir": str(self.config_file.parent),
+            "config_dir_source": self.config_dir_source,
+            "default_config_file": str(self._default_config_dir() / "config.json"),
+            "legacy_windows_config_file": str(self._legacy_windows_config_dir() / "config.json") if sys.platform.startswith("win") else "",
+            "legacy_windows_config_exists": (self._legacy_windows_config_dir() / "config.json").exists() if sys.platform.startswith("win") else False,
+            "config_dir_override_value": self._config_dir_override_value(),
+            "config_dir_override_matches_default": self._config_dir_override_matches_default(),
+            "exists": self.config_file.exists(),
+        }
 
     @property
     def debug_enabled(self) -> bool:
@@ -326,25 +387,16 @@ class Config:
 
     @property
     def log_dir(self) -> Path:
-        log_dir_str = self._get_config_value("SMART_SEARCH_LOG_DIR", "logs") or "logs"
+        log_dir_str = self.log_dir_config_value
         log_dir = Path(log_dir_str)
         if log_dir.is_absolute():
             return log_dir
 
-        config_dir, env_pinned = self._resolve_config_dir()
-        primary_log_dir = config_dir / log_dir_str
-        if self._safe_mkdir(primary_log_dir):
-            return primary_log_dir
-        if env_pinned:
-            return primary_log_dir
+        return self.config_file.parent / log_dir
 
-        cwd_log_dir = Path.cwd() / log_dir_str
-        if self._safe_mkdir(cwd_log_dir):
-            return cwd_log_dir
-
-        tmp_log_dir = Path("/tmp") / "smart-search" / log_dir_str
-        self._safe_mkdir(tmp_log_dir)
-        return tmp_log_dir
+    @property
+    def log_dir_config_value(self) -> str:
+        return self._get_config_value("SMART_SEARCH_LOG_DIR", "logs") or "logs"
 
     @staticmethod
     def apply_model_suffix_for_url(model: str, api_url: str) -> str:
@@ -462,7 +514,7 @@ class Config:
             "SMART_SEARCH_MINIMUM_PROFILE": minimum_profile,
             "SMART_SEARCH_DEBUG": self.debug_enabled,
             "SMART_SEARCH_LOG_LEVEL": self.log_level,
-            "SMART_SEARCH_LOG_DIR": str(self.log_dir),
+            "SMART_SEARCH_LOG_DIR": self.log_dir_config_value,
             "SMART_SEARCH_RETRY_MAX_ATTEMPTS": self.retry_max_attempts,
             "SMART_SEARCH_RETRY_MULTIPLIER": self.retry_multiplier,
             "SMART_SEARCH_RETRY_MAX_WAIT": self.retry_max_wait,
@@ -487,6 +539,16 @@ class Config:
             "primary_api_mode": "xai-responses" if self.xai_api_key else ("chat-completions" if self.openai_compatible_api_url and self.openai_compatible_api_key else "未配置"),
             "primary_api_mode_source": "config_file" if explicit_main_configured else "default",
             "config_file": str(self.config_file),
+            "config_dir": str(self.config_file.parent),
+            "config_dir_source": self.config_dir_source,
+            "default_config_file": str(self._default_config_dir() / "config.json"),
+            "legacy_windows_config_file": str(self._legacy_windows_config_dir() / "config.json") if sys.platform.startswith("win") else "",
+            "legacy_windows_config_exists": (self._legacy_windows_config_dir() / "config.json").exists() if sys.platform.startswith("win") else False,
+            "config_dir_override_value": self._config_dir_override_value(),
+            "config_dir_override_matches_default": self._config_dir_override_matches_default(),
+            "log_dir_config_value": self.log_dir_config_value,
+            "resolved_log_dir": str(self.log_dir),
+            "file_logging_enabled": self.debug_enabled or self.log_to_file_enabled,
             "config_sources": self.get_config_sources(),
             "config_parameter_errors": config_parameter_errors,
             "config_status": config_status

@@ -183,8 +183,10 @@ smart-search search "Iran Hormuz latest military talks" --extra-sources 3 --time
 - Do not ask users to set Windows global API-key environment variables by default.
 - If keys are changed with `smart-search config set`, rerun the CLI; no Codex restart is needed.
 - If PATH is changed, a new terminal or Codex restart may be needed.
-- In sandboxed runtimes (Codex CLI, containers, CI) where the user's home directory may not be writable from spawned subprocesses, set `SMART_SEARCH_CONFIG_DIR` to an absolute path the runtime can write to. The CLI uses it for both config and logs and skips home-directory fallback.
-- Use `smart-search doctor --format json` for agent/script parsing and `smart-search doctor --format markdown` when a human wants a quick health report.
+- On Windows, the default local config file is `%LOCALAPPDATA%\smart-search\config.json`. Linux/macOS default to `~/.config/smart-search/config.json`.
+- In sandboxed runtimes (Codex CLI, containers, CI) where the default config directory is not writable or must be pinned, set `SMART_SEARCH_CONFIG_DIR` to an absolute writable path. The CLI uses it for both config and relative logs and skips default-directory selection.
+- Earlier Windows source defaults used `~\.config\smart-search\config.json`, while some installs were already pinned to `%LOCALAPPDATA%\smart-search` through `SMART_SEARCH_CONFIG_DIR`. If the new default file is missing but the old file exists, `doctor` reports `legacy_windows_home` as the active source so upgrades do not silently lose configuration. It also reports the override value and whether it matches the current default.
+- Use `smart-search doctor --format json` for agent/script parsing and `smart-search doctor --format markdown` when a human wants a detailed diagnostic report.
 - If `smart-search doctor --format json` returns `ok: false`, follow the `error` field's guidance (`smart-search setup` or `smart-search config set KEY VALUE`); do not silently fall back to native web search.
 - Interactive `smart-search setup` is a language-selecting grouped wizard with arrow-key / Space / Enter provider selection. It guides users through required `main_search`, `docs_search`, and fetch capability, then optional `web_search` reinforcement.
 - The setup wizard prints beginner filling examples for official-service and relay/pooled-endpoint minimum profiles. Keep that guidance on stderr so stdout remains parseable JSON/Markdown/content output.
