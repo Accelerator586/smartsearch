@@ -1730,7 +1730,8 @@ async def _test_tavily_connection() -> dict[str, Any]:
     if not tavily_key:
         return {"status": "not_configured", "message": "TAVILY_API_KEY 未设置，Tavily 功能不可用"}
     start = time.time()
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    timeout = httpx.Timeout(connect=6.0, read=config.tavily_timeout, write=10.0, pool=None)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=config.ssl_verify_enabled) as client:
         resp = await client.post(
             f"{config.tavily_api_url.rstrip('/')}/search",
             headers={"Authorization": f"Bearer {tavily_key}", "Content-Type": "application/json"},

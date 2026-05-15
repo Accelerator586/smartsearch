@@ -90,11 +90,12 @@ smart-search deep "深度搜索一下最近的比特币行情" --budget standard
 5. 把 skill 安装给 AI 工具：
 
 ```powershell
-smart-search setup --non-interactive --install-skills codex,claude,cursor --skills-root "D:\path\to\project"
-smart-search setup --non-interactive --install-skills hermes
+smart-search setup --non-interactive --install-skills codex,claude,cursor,hermes
 ```
 
-Skill 安装只安装 `smart-search-cli`，不会初始化 Trellis，不会创建 hooks、agents 或 commands。
+Skill 安装会把内置 `smart-search-cli` 写入用户级工具目录，例如 `~/.codex/skills`、
+`~/.claude/skills`、`~/.cursor/skills`、`~/.hermes/skills`。它不会初始化 Trellis、hooks、
+agents 或 commands。`--skills-root PATH` 只适合便携安装或测试时高级覆盖根目录。
 
 ## 当前架构
 
@@ -261,6 +262,7 @@ smart-search setup --non-interactive `
 | `ZHIPU_SEARCH_ENGINE` | 智谱搜索服务，例如 `search_pro_sogou` |
 | `TAVILY_API_URL` | Tavily REST base |
 | `TAVILY_API_KEY` | Tavily key |
+| `TAVILY_TIMEOUT_SECONDS` | Tavily 连通性检查超时，默认 `30`；公益站/号池较慢时可调大 |
 | `FIRECRAWL_API_URL` | Firecrawl REST base |
 | `FIRECRAWL_API_KEY` | Firecrawl key |
 | `SMART_SEARCH_VALIDATION_LEVEL` | `fast`、`balanced`、`strict` |

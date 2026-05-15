@@ -17,7 +17,6 @@ class SkillTarget:
     label: str
     relative_root: str
     default: bool = False
-    root_scope: str = "project"
 
     @property
     def skill_relative_path(self) -> str:
@@ -25,11 +24,11 @@ class SkillTarget:
 
 
 SKILL_TARGETS: tuple[SkillTarget, ...] = (
-    SkillTarget("codex", "Codex / agentskills standard", ".agents/skills", True),
+    SkillTarget("codex", "Codex", ".codex/skills", True),
     SkillTarget("claude", "Claude Code", ".claude/skills", True),
     SkillTarget("cursor", "Cursor", ".cursor/skills", True),
     SkillTarget("opencode", "OpenCode", ".opencode/skills"),
-    SkillTarget("copilot", "GitHub Copilot", ".github/skills"),
+    SkillTarget("copilot", "GitHub Copilot", ".copilot/skills"),
     SkillTarget("gemini", "Gemini CLI", ".gemini/skills"),
     SkillTarget("kiro", "Kiro", ".kiro/skills"),
     SkillTarget("qoder", "Qoder", ".qoder/skills"),
@@ -39,7 +38,7 @@ SKILL_TARGETS: tuple[SkillTarget, ...] = (
     SkillTarget("kilo", "Kilo CLI", ".kilocode/skills"),
     SkillTarget("antigravity", "Antigravity", ".agent/skills"),
     SkillTarget("windsurf", "Windsurf", ".windsurf/skills"),
-    SkillTarget("hermes", "Hermes Agent", ".hermes/skills", root_scope="home"),
+    SkillTarget("hermes", "Hermes Agent", ".hermes/skills"),
 )
 
 SKILL_TARGET_BY_ID = {target.target_id: target for target in SKILL_TARGETS}
@@ -176,9 +175,7 @@ def install_skill_targets(
     project_root: str | Path | None = None,
     source_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    root = Path(project_root) if project_root is not None else Path.cwd()
-    root = root.expanduser().resolve()
-    home_root = Path.home().expanduser().resolve()
+    root = Path(project_root).expanduser().resolve() if project_root else Path.home().expanduser().resolve()
     selected = [SKILL_TARGET_BY_ID[target_id] for target_id in target_ids]
     if not selected:
         return {
@@ -199,8 +196,7 @@ def install_skill_targets(
     failed: list[dict[str, str]] = []
 
     for target in selected:
-        target_root = home_root if target.root_scope == "home" else root
-        dest = target_root / Path(target.skill_relative_path)
+        dest = root / Path(target.skill_relative_path)
         try:
             for rel_path, content in files:
                 file_path = dest / Path(rel_path)

@@ -1071,3 +1071,40 @@ async def test_doctor_tests_main_providers_independently(monkeypatch):
     assert result["primary_connection_test"]["status"] == "timeout"
     assert result["main_search_connection_tests"]["xai-responses"]["status"] == "timeout"
     assert result["main_search_connection_tests"]["openai-compatible"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_tavily_doctor_connection_uses_configured_timeout(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+    monkeypatch.setenv("TAVILY_API_URL", "https://tavily.example.com/api/tavily")
+    monkeypatch.setenv("TAVILY_TIMEOUT_SECONDS", "45")
+    seen = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout, follow_redirects=False, verify=True):
+            seen["timeout"] = timeout
+            seen["follow_redirects"] = follow_redirects
+            seen["verify"] = verify
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            seen["url"] = url
+            seen["json"] = json
+            return httpx.Response(200, json={"results": []}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await service._test_tavily_connection()
+
+    assert result["status"] == "ok"
+    assert seen["url"] == "https://tavily.example.com/api/tavily/search"
+    assert seen["timeout"].connect == 6.0
+    assert seen["timeout"].read == 45.0
+    assert seen["timeout"].write == 10.0
+    assert seen["follow_redirects"] is True
+    assert seen["verify"] is True

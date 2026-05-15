@@ -106,6 +106,7 @@ Zhipu Web Search API setup:
 - `config set ZHIPU_SEARCH_ENGINE VALUE` must remain free-form so newly added official services do not require a CLI release.
 - `zhipu-search` corresponds to Zhipu Web Search API, not Zhipu Chat Completions `tools=[web_search]`, not Search Agent, and not the MCP Server.
 - `TAVILY_API_URL` only affects Tavily and does not proxy Zhipu.
+- `TAVILY_TIMEOUT_SECONDS` controls the Tavily `doctor` connectivity timeout. It defaults to `30` so slower pooled/community endpoints are not incorrectly marked unhealthy by the diagnostic check.
 
 Exa search output includes `ok`, `query`, `search_type`, `results`, `total`, and `elapsed_ms` when successful.
 
@@ -121,7 +122,7 @@ Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `el
 
 Deep planner output includes `ok`, `mode`, `query_mode`, `question`, `trigger_source`, `difficulty`, `intent_signals`, `decomposition`, `capability_plan`, `evidence_policy`, `preflight`, `steps`, `gap_check`, `final_answer_policy`, `usage_boundary`, `allowed_tools`, `evidence_dir`, and `elapsed_ms`. `smart-search deep` is offline by default: `preflight.executed_by_deep_command=false`, no provider calls are made, and live research only happens when an AI agent or user executes `steps[].command`.
 
-Diagnostic output masks keys, reports `config_file` / `config_dir` / `config_dir_source` / `default_config_file` / Windows legacy config metadata / `config_dir_override_value` / `config_dir_override_matches_default` / `log_dir_config_value` / `resolved_log_dir` / `file_logging_enabled` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main provider check. OpenAI-compatible provider health must be validated through `/chat/completions`; `/models` is supplementary metadata and must not be the health gate. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
+Diagnostic output masks keys, reports `config_file` / `config_dir` / `config_dir_source` / `default_config_file` / Windows legacy config metadata / `config_dir_override_value` / `config_dir_override_matches_default` / `log_dir_config_value` / `resolved_log_dir` / `file_logging_enabled` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / provider timeout values / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main provider check. OpenAI-compatible provider health must be validated through `/chat/completions`; `/models` is supplementary metadata and must not be the health gate. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
 
 When a Windows user reports that different versions seem to use different config paths, diagnose in this order: `config_dir_source`, `config_dir_override_value`, `config_dir_override_matches_default`, then `legacy_windows_config_exists`. A source of `environment` with `config_dir_override_matches_default=true` means the active path is pinned by `SMART_SEARCH_CONFIG_DIR` but is functionally the same as the current default. Do not delete either config file or the user-level override until the upgraded CLI has been verified with `config path`, `doctor`, and smoke/regression checks.
 
@@ -186,22 +187,25 @@ Setup and config output should include `ok` and `config_file`. Saved API keys mu
 Interactive setup behavior:
 
 - Default `smart-search setup` shows a Smart Search ASCII banner, asks for `zh`
-  or `en`, offers project-local `smart-search-cli` skill installation, then
+  or `en`, offers user-level `smart-search-cli` skill installation, then
   shows a grouped provider wizard.
 - The grouped wizard should use an arrow-key / Space / Enter selector when the
   packaged TUI dependencies are available, with a text fallback for non-TTY
   and tests.
 - Skill installation installs the bundled `smart-search-cli` skill into
   selected AI-tool skill directories and must not run `trellis init`, create
-  hooks, create agents, create commands, or modify other skills. Most targets
-  are project-local; Hermes Agent installs to the current user's
-  `~/.hermes/skills/` by convention.
+  hooks, create agents, create commands, or modify other skills. Targets are
+  user-level/global directories under the current user's home directory, for
+  example Codex `~/.codex/skills/`, Claude Code `~/.claude/skills/`, Cursor
+  `~/.cursor/skills/`, GitHub Copilot `~/.copilot/skills/`, and Hermes Agent
+  `~/.hermes/skills/`.
 - Skill targets are `codex`, `claude`, `cursor`, `opencode`, `copilot`,
   `gemini`, `kiro`, `qoder`, `codebuddy`, `droid`, `pi`, `kilo`,
   `antigravity`, `windsurf`, and `hermes`. `--skip-skills` disables skill
   installation. `--install-skills codex,claude,cursor,hermes` selects targets
-  explicitly, and `--skills-root PATH` overrides the project root used for
-  project-local targets.
+  explicitly, and `--skills-root PATH` is an advanced override for the
+  user-level install root used in portable installs or tests. Normal users
+  should omit it.
 - Required groups are `main_search`, `docs_search`, and `web_fetch`; `web_search` is optional reinforcement.
 - `--lang zh|en` skips the language question.
 - `--advanced` shows low-level config keys one by one for compatibility with older setup behavior and does not show the skill prompt unless `--install-skills` is explicit.
@@ -217,6 +221,8 @@ Interactive setup behavior:
 Provider endpoint setup:
 
 - `TAVILY_API_URL` defaults to `https://api.tavily.com`.
+- `TAVILY_TIMEOUT_SECONDS` defaults to `30` and applies to Tavily `doctor`
+  connectivity checks.
 - Tavily Hikari / pooled endpoints must use the REST facade base
   `https://<host>/api/tavily`; `/mcp` is not a REST provider base.
 - Setup normalizes a Hikari root host or `/mcp` URL to

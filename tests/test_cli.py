@@ -1143,7 +1143,7 @@ def test_setup_non_interactive_rejects_legacy_flags(capsys):
         capsys.readouterr()
 
 
-def test_setup_non_interactive_installs_selected_skills(monkeypatch, tmp_path, capsys):
+def test_setup_non_interactive_installs_selected_skills_under_user_root_override(monkeypatch, tmp_path, capsys):
     saved = {}
 
     monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
@@ -1162,12 +1162,12 @@ def test_setup_non_interactive_installs_selected_skills(monkeypatch, tmp_path, c
     assert code == cli.EXIT_OK
     assert saved == {}
     assert data["skills"]["installed_count"] == 3
-    assert (tmp_path / ".agents" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".codex" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert (tmp_path / ".claude" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert (tmp_path / ".cursor" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
 
 
-def test_setup_non_interactive_installs_hermes_skill_under_home(monkeypatch, tmp_path, capsys):
+def test_setup_non_interactive_installs_skill_under_home_by_default(monkeypatch, tmp_path, capsys):
     fake_home = tmp_path / "home"
 
     monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
@@ -1178,16 +1178,16 @@ def test_setup_non_interactive_installs_hermes_skill_under_home(monkeypatch, tmp
         "setup",
         "--non-interactive",
         "--install-skills",
-        "hermes-agent",
-        "--skills-root",
-        str(tmp_path / "project"),
+        "codex,hermes-agent",
     ])
     data = json.loads(capsys.readouterr().out)
 
     assert code == cli.EXIT_OK
-    assert data["skills"]["installed_count"] == 1
-    assert data["skills"]["installed"][0]["target"] == "hermes"
+    assert data["skills"]["installed_count"] == 2
+    assert {item["target"] for item in data["skills"]["installed"]} == {"codex", "hermes"}
+    assert (fake_home / ".codex" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert (fake_home / ".hermes" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert not (tmp_path / "project" / ".codex" / "skills" / "smart-search-cli").exists()
     assert not (tmp_path / "project" / ".hermes" / "skills" / "smart-search-cli").exists()
 
 
@@ -1208,7 +1208,7 @@ def test_setup_skip_skills_writes_no_skill_files(monkeypatch, tmp_path, capsys):
 
     assert code == cli.EXIT_OK
     assert "skills" not in data
-    assert not (tmp_path / ".agents" / "skills" / "smart-search-cli").exists()
+    assert not (tmp_path / ".codex" / "skills" / "smart-search-cli").exists()
 
 
 def test_setup_unknown_skill_target_returns_parameter_error(monkeypatch, capsys):
@@ -1228,7 +1228,7 @@ def test_setup_guided_installs_tui_selected_skill_targets(monkeypatch, tmp_path,
     checkbox_calls = []
 
     def fake_checkbox(message, choices):
-        checkbox_calls.append(message)
+        checkbox_calls.append((message, choices))
         if "AI tools" in message:
             return ["codex", "cursor"]
         return []
@@ -1245,9 +1245,15 @@ def test_setup_guided_installs_tui_selected_skill_targets(monkeypatch, tmp_path,
 
     assert code == cli.EXIT_OK
     assert data["skills"]["installed_count"] == 2
-    assert (tmp_path / ".agents" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".codex" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert (tmp_path / ".cursor" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    skill_choices = next(choices for message, choices in checkbox_calls if "AI tools" in message)
+    skill_choice_names = [choice["name"] for choice in skill_choices]
+    assert "Codex (~/.codex/skills)" in skill_choice_names
+    assert "Cursor (~/.cursor/skills)" in skill_choice_names
+    assert not any("project/" in name for name in skill_choice_names)
     assert "Install the smart-search-cli skill" in captured.err
+    assert "user-level AI tools" in captured.err
     assert "Skill install result" in captured.err
 
 
@@ -1288,7 +1294,7 @@ def test_skill_installer_parse_aliases_and_all(tmp_path):
 
     assert result["ok"] is True
     assert result["installed_count"] == 1
-    assert (tmp_path / "project" / ".agents" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / "project" / ".codex" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
 
 
 def test_tavily_url_normalization_cases():

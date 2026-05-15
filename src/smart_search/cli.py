@@ -1195,8 +1195,7 @@ def _skill_target_choices(selected: list[str], lang: str) -> list[dict[str, Any]
     choices: list[dict[str, Any]] = []
     for target in SKILL_TARGETS:
         label = target.label
-        root_label = "~" if target.root_scope == "home" else "project"
-        name = f"{label} ({root_label}/{target.relative_root})"
+        name = f"{label} (~/{target.relative_root})"
         choices.append({"name": name, "value": target.target_id, "enabled": target.target_id in selected_set})
     return choices
 
@@ -1205,8 +1204,8 @@ def _prompt_skill_targets(lang: str) -> list[str]:
     _write_stderr(
         _t(
             lang,
-            "\n[可选] 安装 smart-search-cli skill\n用途: 让项目里的 AI 工具知道优先调用 smart-search CLI。\n提示: 只安装 Smart Search skill；不会初始化 Trellis，也不会生成 hooks、agents 或 commands。\n",
-            "\n[Optional] Install the smart-search-cli skill\nPurpose: teach AI tools in this project to call the smart-search CLI first.\nNote: this only installs the Smart Search skill; it does not initialize Trellis or generate hooks, agents, or commands.\n",
+            "\n[可选] 安装 smart-search-cli skill\n用途: 让本机全局 AI 工具知道优先调用 smart-search CLI。\n提示: 只安装 Smart Search skill；不会初始化 Trellis，也不会生成 hooks、agents 或 commands。\n",
+            "\n[Optional] Install the smart-search-cli skill\nPurpose: teach user-level AI tools on this machine to call the smart-search CLI first.\nNote: this only installs the Smart Search skill; it does not initialize Trellis or generate hooks, agents, or commands.\n",
         )
     )
     tui_value = _checkbox_with_tui(
@@ -2044,13 +2043,17 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--non-interactive", action="store_true", help="Only save values passed as flags.")
     setup_parser.add_argument("--lang", choices=["zh", "en"], default="", help="Interactive setup language.")
     setup_parser.add_argument("--advanced", action="store_true", help="Show every low-level config key in interactive setup.")
-    setup_parser.add_argument("--skip-skills", action="store_true", help="Skip project-local smart-search-cli skill installation.")
+    setup_parser.add_argument("--skip-skills", action="store_true", help="Skip user-level smart-search-cli skill installation.")
     setup_parser.add_argument(
         "--install-skills",
         default="",
         help="Comma-separated AI tool targets for smart-search-cli skill installation, e.g. codex,claude,cursor,hermes.",
     )
-    setup_parser.add_argument("--skills-root", default="", help="Project root for skill installation; defaults to the current directory.")
+    setup_parser.add_argument(
+        "--skills-root",
+        default="",
+        help="Advanced override for the user-level skill root; defaults to the current user's home directory.",
+    )
     setup_parser.add_argument("--xai-api-url", default="", help="Save XAI_API_URL.")
     setup_parser.add_argument("--xai-api-key", default="", help="Save XAI_API_KEY.")
     setup_parser.add_argument("--xai-model", default="", help="Save XAI_MODEL.")

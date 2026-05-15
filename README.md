@@ -90,11 +90,12 @@ smart-search deep "Deep research recent Bitcoin market movement" --budget standa
 5. Install the skill for AI tools when setup prompts you, or explicitly:
 
 ```powershell
-smart-search setup --non-interactive --install-skills codex,claude,cursor --skills-root "D:\path\to\project"
-smart-search setup --non-interactive --install-skills hermes
+smart-search setup --non-interactive --install-skills codex,claude,cursor,hermes
 ```
 
-Skill installation only installs `smart-search-cli`; it does not initialize Trellis, hooks, agents, or commands.
+Skill installation writes the bundled `smart-search-cli` skill into user-level tool directories such as
+`~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`, and `~/.hermes/skills`. It does not initialize
+Trellis, hooks, agents, or commands. `--skills-root PATH` is only an advanced override for portable or test installs.
 
 ## Current Architecture
 
@@ -226,6 +227,11 @@ Local config path:
 - Linux/macOS default: `~/.config/smart-search/config.json`.
 - `SMART_SEARCH_CONFIG_DIR` is an advanced override for CI, containers, sandboxes, or portable installs.
 - Earlier Windows source builds defaulted to `~\.config\smart-search\config.json`, while some installs were already pinned to `%LOCALAPPDATA%\smart-search` through `SMART_SEARCH_CONFIG_DIR`. If the new Windows default file is missing but the old home config exists, Smart Search reads the old file as `legacy_windows_home` so upgrades do not lose configuration. `doctor` reports the active path, default path, old home path, `SMART_SEARCH_CONFIG_DIR`, and whether that override merely matches the current default.
+
+Provider timeouts:
+
+- `TAVILY_TIMEOUT_SECONDS` controls the Tavily `doctor` connectivity check timeout and defaults to `30`.
+- Raise it for slower Tavily Hikari / pooled / community endpoints before treating the provider as unhealthy.
 
 ## Commands
 

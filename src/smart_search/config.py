@@ -43,6 +43,7 @@ class Config:
         "TAVILY_API_KEY",
         "TAVILY_API_URL",
         "TAVILY_ENABLED",
+        "TAVILY_TIMEOUT_SECONDS",
         "FIRECRAWL_API_KEY",
         "FIRECRAWL_API_URL",
         "SMART_SEARCH_DEBUG",
@@ -374,6 +375,10 @@ class Config:
         return self._get_config_value("TAVILY_API_KEY")
 
     @property
+    def tavily_timeout(self) -> float:
+        return float(self._get_config_value("TAVILY_TIMEOUT_SECONDS", "30") or "30")
+
+    @property
     def firecrawl_api_url(self) -> str:
         return self._get_config_value("FIRECRAWL_API_URL", "https://api.firecrawl.dev/v2") or "https://api.firecrawl.dev/v2"
 
@@ -521,6 +526,7 @@ class Config:
             "TAVILY_API_URL": self.tavily_api_url,
             "TAVILY_ENABLED": self.tavily_enabled,
             "TAVILY_API_KEY": self._mask_api_key(self.tavily_api_key) if self.tavily_api_key else "未配置",
+            "TAVILY_TIMEOUT_SECONDS": self.tavily_timeout,
             "FIRECRAWL_API_URL": self.firecrawl_api_url,
             "FIRECRAWL_API_KEY": self._mask_api_key(self.firecrawl_api_key) if self.firecrawl_api_key else "未配置",
             "SMART_SEARCH_OUTPUT_CLEANUP": self.output_cleanup_enabled,
